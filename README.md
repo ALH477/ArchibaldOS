@@ -44,8 +44,5 @@ Visit the  for advanced configuration guidance.
 Support and Community
 Connect with the ArchibaldOS community for help and collaboration:
 
-Forum: Ask questions and share ideas on the .
-Discord: Join the for real-time support and discussions.
-Wiki: Explore the for detailed documentation on setup, usage, and troubleshooting.
 License
 ArchibaldOS is released under the GNU General Public License version 3 (GPLv3), consistent with CachyOS and Arch Linux.
