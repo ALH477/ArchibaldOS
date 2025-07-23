@@ -7,7 +7,7 @@ set -e
 
 # Display ASCII art logo
 cat << EOF
-                        *
+                      *
                       * *
                      *   *
                     * * * *
