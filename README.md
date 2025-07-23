@@ -1,48 +1,104 @@
 ArchibaldOS
-ArchibaldOS is a specialized, audio-oriented modification of CachyOS, an Arch Linux-based distribution renowned for its performance optimizations. Tailored for musicians, sound engineers, and audio enthusiasts, ArchibaldOS combines CachyOS’s high-performance foundation with tools and configurations optimized for professional and hobbyist audio production.
-
+ 
+ArchibaldOS is a custom NixOS-based operating system inspired by the specifications from DeMoD LLC's Archibald project (as described on demod.ltd/archibald.html). It leverages the declarative power of NixOS for reproducible, maintainable configurations, integrated with the high-performance CachyOS Real-Time (RT) BORE kernel for low-latency audio production. This setup includes KDE Plasma as the desktop environment, Hyprland as an optional Wayland compositor, and a curated selection of the best Free and Open-Source Software (FOSS) audio production tools and drivers.
+Designed for audio professionals, developers, and enthusiasts, ArchibaldOS aims to provide efficiency surpassing traditional OSes like macOS and Windows, with a focus on real-time audio workloads, modular configuration, and lean system optimization.
 Features
-Performance Optimizations: Inherits CachyOS’s support for modern CPU architectures (x86-64-v3, x86-64-v4, Zen4), maximizing hardware efficiency.
-Custom Kernels: Includes advanced schedulers like BORE, EEVDF, and BMQ, tuned for low-latency audio processing.
-Pre-installed Audio Software: Comes equipped with essential audio tools, including:
-Ardour: A professional digital audio workstation for recording, editing, and mixing.
-Audacity: A versatile, open-source audio editor.
-JACK Audio Connection Kit: A low-latency audio server for connecting applications and hardware.
-QjackCtl: A graphical interface for managing JACK connections.
-LMMS: A music production suite for composing with samples and synthesizers.
-Low-Latency Configuration: Pre-configured with real-time priorities and optimized buffer settings to minimize audio latency.
-Audio Plugins and Utilities: Offers a curated selection of plugins, effects, and tools to enhance audio projects.
-User-Friendly Audio Setup: Simplifies the Arch Linux experience with an audio-ready environment out of the box.
+
+Kernel: CachyOS RT-BORE kernel for burst-oriented responsiveness and real-time patches, ideal for low-latency audio (e.g., <5ms in tools like Ardour).
+Desktop Environment: KDE Plasma 6 with SDDM display manager for a modern, customizable interface.
+Compositor: Optional Hyprland Wayland setup with a lean configuration for performance and gestures.
+Audio Stack: PipeWire with JACK/ALSA support, RTKit for privileges, and FOSS tools like Ardour, Audacity, MuseScore, LMMS, Carla, Guitarix, and more.
+Packages: Curated list of ~100 essential packages for utilities, development, security, and media, mapped from the provided packages.x86_64 spec (e.g., Vim, Git, FFmpeg, LibreOffice, Bitwarden).
+Optimization: Declarative Nix flakes for reproducibility, auto-optimization, and easy rollbacks. Ignored bloat like GRUB in favor of systemd-boot.
+Security: UFW firewall, sudo configurations, and group-based realtime privileges.
+Maintainability: Modular config structure (e.g., separate modules for packages, audio, KDE) for easy extension.
+
+Requirements
+
+x86_64 hardware (AMD/Intel CPUs supported via ucode).
+EFI boot system.
+NixOS installer ISO (download from nixos.org).
+Basic knowledge of NixOS and flakes (experimental features enabled).
+
 Installation
-To install ArchibaldOS, follow these steps:
 
-Download the ISO from the .
-Create a Bootable USB using tools like Rufus or Etcher.
-Boot from the USB and select the “Install ArchibaldOS” option from the boot menu.
-Follow the Installer: Choose the “Audio Optimized” profile during setup to install audio-specific packages and configurations.
-Reboot: After installation, restart your system to begin using ArchibaldOS.
-For detailed instructions, refer to the .
+Boot NixOS Installer:
 
+Download and boot the latest NixOS minimal ISO.
+Mount your target disk (e.g., sudo mount /dev/sda1 /mnt).
+
+
+Generate Hardware Config:
+sudo nixos-generate-config --root /mnt
+
+This creates /mnt/etc/nixos/hardware-configuration.nix.
+
+Clone the Repo:
+git clone https://github.com/yourusername/archibaldos.git /mnt/etc/nixos
+cd /mnt/etc/nixos
+
+
+Customize:
+
+Edit configuration.nix for your user (e.g., replace youruser).
+Adjust timezone, locale, or hardware specifics in configuration.nix.
+For Hyprland, copy the example config to ~/.config/hypr/hyprland.conf post-install.
+
+
+Install:
+sudo nixos-install --flake .#archibald
+
+Reboot into the new system.
+
+Post-Install:
+
+Update: nixos-rebuild switch --flake /etc/nixos#archibald.
+Test audio: Run qjackctl or realtimeconfigquickscan to verify RT setup.
+Enable Flatpak if needed: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo.
+
+
+
+Configuration Structure
+
+flake.nix: Entry point with inputs (Nixpkgs unstable, Chaotic-Nyx for CachyOS kernel).
+configuration.nix: Core system settings (boot, kernel, users, networking).
+modules/:
+packages.nix: System-wide packages from the spec.
+audio.nix: PipeWire, JACK, RT optimizations.
+kde.nix: KDE Plasma enablement.
+hyprland.nix: Hyprland program enablement.
+
+
+hardware-configuration.nix: Auto-generated hardware specifics.
+
+Example Hyprland Config
+The provided hyprland.conf is lean and optimized:
+
+Minimal animations for performance.
+Keybinds for terminals, browsers, and audio tools (e.g., SUPER+A for QJackCtl).
+Window rules for floating audio apps.
+
+Copy to ~/.config/hypr/ and customize as needed.
 Usage
-ArchibaldOS is designed to streamline audio production:
 
-Desktop Environment: Select from options like KDE Plasma, GNOME, or XFCE, all pre-configured for audio workflows.
-Launch Audio Tools: Access pre-installed software via the applications menu or terminal.
-JACK Integration: Use QjackCtl to manage audio routing between applications and your sound hardware.
-Optimized Performance: Enjoy real-time audio processing with reduced latency and reliable performance.
-Check the  for tips on maximizing your audio setup.
+Rebuild System: nixos-rebuild switch for changes.
+Audio Production:
+Start a session in Ardour or Carla.
+Use PipeWire for seamless JACK integration.
+Monitor latency with jack_iodelay.
 
-Customization
-Built on Arch Linux, ArchibaldOS offers extensive customization options:
 
-Package Management: Install additional software using pacman from Arch repositories or the AUR with tools like yay.
-Audio Repository: Access the for optimized audio packages.
-Kernel Adjustments: Fine-tune performance by tweaking kernel parameters or switching kernel versions.
-Desktop Flexibility: Install alternative desktop environments to match your preferences.
-Visit the  for advanced configuration guidance.
+Desktop Switching: KDE is default; launch Hyprland via hyprland command or session manager.
+Backups: Use Timeshift for snapshots.
 
-Support and Community
-Connect with the ArchibaldOS community for help and collaboration:
+Kernel Integration Details
+The CachyOS RT-BORE kernel is sourced via Chaotic-Nyx overlay:
 
+boot.kernelPackages = pkgs.linuxPackages_cachyos-rt-bore;
+Params: preempt=full threadirqs for RT enhancements.
+If build issues arise, fallback to source compilation or check Chaotic-Nyx cache status.
+
+Contributing
+Fork the repo, make changes (e.g., add modules), and submit a PR. Follow Nix best practices for modularity.
 License
-ArchibaldOS is released under the GNU General Public License version 3 (GPLv3), consistent with CachyOS and Arch Linux.
+MIT License. See LICENSE for details.
