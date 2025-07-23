@@ -5,6 +5,26 @@
 
 set -e
 
+# Display ASCII art logo
+cat << EOF
+                        *
+                      * *
+                     *   *
+                    * * * *
+                   *       *
+                  * *     * *
+                 *   *   *   *
+                * * * * * * * *
+               *               *
+              * *             * *
+             *   *           *   *
+            * * * *         * * * *
+           *       *       *       *
+          * *     * *     * *     * *
+         *   *   *   *   *   *   *   *
+        * * * * * * * * * * * * * * * *
+EOF
+
 # Default paths
 NIX_DIR="/etc/nixos"
 HARDWARE_CONFIG="$NIX_DIR/hardware-configuration.nix"
@@ -150,7 +170,41 @@ cat << EOF > "$NIX_DIR/modules/packages.nix"
 }
 EOF
 
+# Generate neofetch config with ASCII art (system-wide or per-user; here as example for user)
+mkdir -p /home/$USERNAME/.config/neofetch
+cat << EOF > /home/$USERNAME/.config/neofetch/config.conf
+print_info() {
+  prin "OS" "\${os}"
+  prin "Kernel" "\${kernel}"
+  # Add other info...
+}
+
+ascii_distro="custom"
+ascii_colors=(3 2 1)
+ascii_bold="off"
+ascii="
+                       *
+                      * *
+                     *   *
+                    * * * *
+                   *       *
+                  * *     * *
+                 *   *   *   *
+                * * * * * * * *
+               *               *
+              * *             * *
+             *   *           *   *
+            * * * *         * * * *
+           *       *       *       *
+          * *     * *     * *     * *
+         *   *   *   *   *   *   *   *
+        * * * * * * * * * * * * * * * *
+"
+EOF
+chown -R $USERNAME:$USERNAME /home/$USERNAME/.config/neofetch
+
 echo "Setup complete! Files generated in $NIX_DIR."
+echo "Neofetch config with ASCII art added to /home/$USERNAME/.config/neofetch/config.conf."
 echo "Next steps:"
 echo "1. Review and edit files if needed (e.g., add passwords, hardware specifics)."
 echo "2. Run: sudo nixos-rebuild switch --flake $NIX_DIR#$HOSTNAME"
