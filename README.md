@@ -36,7 +36,7 @@ Installation
    This creates /mnt/etc/nixos/hardware-configuration.nix.
 
 3. Clone the Repo:
-   git clone https://github.com/yourusername/archibaldos.git /mnt/etc/nixos
+   git clone https://github.com/ALH477/ArchibaldOS.git /mnt/etc/nixos
    cd /mnt/etc/nixos
 
 4. Customize:
