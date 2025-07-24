@@ -1,5 +1,6 @@
 ArchibaldOS
 
+![](https://blog.demod.ltd/content/images/size/w960/2025/04/image_28.jpg)
 
 ArchibaldOS is a custom NixOS-based operating system inspired by the specifications from DeMoD LLC's Archibald project (as described on demod.ltd/archibald.html). It leverages the declarative power of NixOS for reproducible, maintainable configurations, integrated with the high-performance Musnix Real-Time (RT) kernel for low-latency audio production. This setup includes KDE Plasma as the desktop environment, Hyprland as an optional Wayland compositor, and a curated selection of the best Free and Open-Source Software (FOSS) audio production tools and drivers.
 
