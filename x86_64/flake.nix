@@ -43,7 +43,7 @@
       ardour audacity fluidsynth musescore
 
       # DSP/Tools
-      csound faust portaudio rtaudio supercollider qjackctl  # Added qjackctl for JACK GUI management
+      csound faust portaudio rtaudio supercollider qjackctl guitarix
 
       # Synths/Modular
       surge vcvrack pd
@@ -624,7 +624,7 @@ echo "Persist specialisations: specialisation.lts-backup.configuration = { boot.
             environment.systemPackages = basicPackages ++ [ pkgs.usbutils pkgs.libusb pkgs.alsa-firmware pkgs.alsa-tools ];
 
             programs.hyprland.enable = true;
-            environment.systemPackages = basicPackages ++ [ pkgs.hyprpaper pkgs.waybar pkgs.wofi pkgs.kitty pkgs.grim pkgs.slurp pkgs.wpctl pkgs.brightnessctl pkgs.playerctl pkgs.zenity pkgs.dialog pkgs.python3 pkgs.disko pkgs.ardour pkgs.fluidsynth pkgs.hydramesh-pkg pkgs.streamdb-pkg pkgs.qjackctl ];
+            environment.systemPackages = basicPackages ++ [ pkgs.hyprpaper pkgs.waybar pkgs.wofi pkgs.kitty pkgs.grim pkgs.slurp pkgs.wpctl pkgs.guitarix pkgs.brightnessctl pkgs.playerctl pkgs.zenity pkgs.dialog pkgs.python3 pkgs.disko pkgs.ardour pkgs.fluidsynth pkgs.hydramesh-pkg pkgs.streamdb-pkg pkgs.qjackctl ];
 
             environment.etc."hypr/hyprland.conf".text = ''
               exec-once = kitty
