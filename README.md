@@ -167,4 +167,3 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - **ARM64**: Set `system = "aarch64-linux"` for future ports.
 - **HydraMesh/StreamDB**: Assumes `hydramesh-toggle` and `hydramesh-status` binaries; provide `hydramesh_config_editor.py` if needed.
 - **Memory Management**: Manage conversation history via "Data Controls" or book icon in chats.
-```
