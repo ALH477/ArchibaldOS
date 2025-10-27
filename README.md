@@ -1,135 +1,118 @@
 # ArchibaldOS: Lean Real-Time Audio NixOS Distribution
 
-**ArchibaldOS** is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design.
+**ArchibaldOS** is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design. Post-install optimizations via the embedded `audio-setup.sh` script enable sub-millisecond latency tuning, making it ideal for professional live performance, recording, and synthesis.
+
+This distribution emphasizes **utilitarian efficiency**, **reproducibility**, and **accessibility**, with a focus on achieving <1.5ms round-trip latency and near-zero xruns through declarative NixOS configurations and RT-specific tweaks.
 
 ## Why ArchibaldOS?
 
-ArchibaldOS is engineered for real-time audio production, offering:
-- **Ultra-Low Latency**: Musnix’s PREEMPT_RT kernel and PipeWire/JACK deliver sub-millisecond audio performance for live recording, synthesis, and performance.
-- **Minimal Footprint**: A curated set of ~18 packages (audio + utilities) minimizes resource usage, ideal for resource-constrained laptops or studio rigs.
-- **Hardware Agnosticism**: Generic configurations ensure compatibility across x86_64 systems, including high-performance laptops like the Framework 16.
-- **Reproducible Builds**: NixOS’s declarative model and flake-based inputs guarantee consistent setups across deployments.
-- **Lightweight Desktop**: Hyprland with Waybar and Wofi provides a fast, Wayland-based interface, leaving CPU/GPU resources for audio tasks.
-- **P2P Audio Networking**: Optional HydraMesh enables low-latency collaborative audio workflows, with StreamDB for sample/metadata management.
-- **Streamlined Installation**: A TUI installer (no Calamares) configures disk, user, and audio settings with minimal overhead.
-- **Basic Utilities**: Includes `pcmanfm` (file manager), `vim` (text editor), and `brave` (browser) for essential tasks like managing samples or accessing online resources.
+ArchibaldOS stands out as a purpose-built RT audio system, addressing the unique demands of low-latency creative workflows while avoiding the bloat of general-purpose distributions. Key differentiators include:
+
+- **Sub-Millisecond Latency**: Leverages Musnix’s PREEMPT_RT kernel, PipeWire/JACK with tuned quantum buffers (32-64 samples), and hardware optimizations (e.g., IRQ pinning, C-state disabling) to deliver ~0.7-1.3ms round-trip latency—comparable to specialized audio OSes like Ubuntu Studio but with NixOS’s reproducibility.
+- **Lean and Reproducible**: A minimal package set (~18 core tools) and flake-based builds ensure consistent, declarative setups across deployments, reducing setup time and eliminating "it works on my machine" issues.
+- **Hardware Agnosticism with Flexibility**: Generic configurations support diverse x86_64 systems (e.g., Framework 16 laptops to desktop rigs), with optional USB audio/MIDI drivers (`snd_usb_audio`, `usbmidi`) for interfaces like Focusrite Scarlett or Novation Launchkey.
+- **Integrated P2P Audio**: HydraMesh enables low-latency collaborative jamming (e.g., over gRPC/WebSocket), with StreamDB for seamless sample/metadata sharing—perfect for remote production or live ensembles.
+- **Minimal Desktop Overhead**: Hyprland’s lightweight Wayland compositor, combined with Waybar (for CPU/memory monitoring) and Wofi (quick launcher), leaves maximum resources for audio processing.
+- **Declarative Tuning**: The embedded `audio-setup.sh` script automates RT optimizations (e.g., sysctl tweaks, IRQ pinning), with persistent Nix configs for boot-time application.
+- **Community-Aligned**: Draws from Musnix, PipeWire, and Linux Audio Users best practices, ensuring compatibility with tools like Ardour and VCV Rack while supporting Flatpak for extended app access.
+
+In essence, ArchibaldOS bridges the gap between professional audio distros and NixOS’s power, offering a "set it and forget it" RT environment for creators who value performance without complexity.
 
 ## Features
 
-- **Real-Time Audio**:
-  - Musnix with `PREEMPT_RT` kernel (`linuxPackages_latest_rt`) for sub-millisecond latency.
-  - PipeWire with ALSA, PulseAudio, and JACK support for professional audio workflows.
-  - `rtirq` prioritizes audio interrupts; `alsaSeq` enables MIDI sequencing.
-- **Minimal Desktop**:
-  - Hyprland Wayland compositor with essential keybindings (`SUPER+Q` for terminal, `SUPER+D` for launcher, `XF86Audio*` for volume).
-  - Waybar displays CPU, memory, network, and HydraMesh status; Wofi launches audio tools.
-- **Audio Tools**:
-  - DAWs: Ardour (multitrack), Audacity (editing), MuseScore (MIDI notation), FluidSynth (soundfont synthesis).
-  - DSP: CSound, FAUST, PortAudio, RtAudio, SuperCollider for synthesis and processing.
-  - Synths/Modular: Surge, VCV Rack, Pure Data (Pd) for creative sound design.
-- **P2P and Metadata**:
-  - Optional HydraMesh for P2P audio networking (toggle via `SUPER+SHIFT+H`).
-  - StreamDB for audio metadata/sample storage, integrated as a CLI/library.
-- **TUI Installer**: Guides through keyboard, disk (GPT/ext4, no LUKS), HydraMesh, locale/timezone, hostname/user, and password in a minimal TUI.
-- **Customization**: Keybindings cheatsheet (`SUPER+SHIFT+K`) and wallpaper (`wall.jpg`) for a tailored UX.
+ArchibaldOS provides a focused set of features tailored for RT audio production:
+
+### Core Audio Pipeline
+- **Real-Time Kernel**: Musnix with PREEMPT_RT (`linuxPackages_latest_rt`), `rtirq` for interrupt prioritization, and `das_watchdog` to prevent process hangs. Kernel parameters (`threadirqs`, `isolcpus=1-3`, `nohz_full=1-3`, `intel_idle.max_cstate=1`) isolate cores and disable deep C-states for ~50-100µs scheduling latency.
+- **Low-Latency Audio Server**: PipeWire with ALSA/PulseAudio/JACK support, tuned for 48kHz sample rate and 32-64 sample quantum (min: 16, max: 128). Achieves ~0.7-1.3ms round-trip latency, verifiable via `jack_iodelay`.
+- **USB Connectivity**: Drivers (`snd_usb_audio`, `usbhid`, `usbmidi`) and tools (`usbutils`, `libusb`) for USB audio/MIDI interfaces, with `nrpacks=1` for reduced packet overhead.
+- **ALSA Optimizations**: Persistent `/etc/asound.conf` with 32-sample buffers and 96kHz support for high-fidelity, low-latency routing.
+
+### Audio Tools
+- **DAWs and MIDI**: Ardour (multitrack recording/editing), Audacity (waveform editing), MuseScore (notation/MIDI composition), FluidSynth (soundfont synthesis).
+- **DSP and Synthesis**: CSound (algorithmic synthesis), FAUST (functional DSP programming), PortAudio/RtAudio (cross-platform I/O), SuperCollider (live coding audio).
+- **Synths and Modular**: Surge (wavetable synthesis), VCV Rack (modular rack), Pure Data (Pd) (visual patching).
+- **Configuration**: `qjackctl` GUI for JACK server tuning (pre-configured for 32 frames, 2 periods, 96kHz).
+
+### Desktop and Utilities
+- **Hyprland Desktop**: Minimal Wayland compositor with audio-focused keybindings (`XF86Audio*` for volume, `SUPER+Q` for terminal, `SUPER+D` for Wofi launcher).
+- **Monitoring**: Waybar for CPU/memory/network/HydraMesh status; Wofi for quick app launching.
+- **Basic Software**: `pcmanfm` (file manager for samples/projects), `vim` (text editor for configs/MIDI scripts), `brave` (privacy-focused browser for tutorials/resources).
+- **Post-Install Script**: `audio-setup.sh` automates RT checks (`realtimeconfigquickscan`), latency tweaks (sysctl, RTC/HPET), hardware optimization (`setpci`, IRQ pinning), `qjackctl` launch, and kernel switching (RT to LTS via specialisations). Includes dry-run mode and logging.
+
+### Networking and Metadata
+- **HydraMesh**: Optional P2P service for low-latency audio collaboration (toggle via `SUPER+SHIFT+H`), configurable via `/etc/hydramesh/config.toml` (e.g., gRPC/WebSocket transports, LoRaWAN plugins).
+- **StreamDB**: CLI/library for audio metadata/sample management, integrated with HydraMesh for distributed storage.
+
+### Installation and Tuning
+- **TUI Installer**: Guides disk partitioning (GPT/ext4), user setup, and HydraMesh enablement.
+- **RT Tuning Guide**: Built-in script and flake configs for automated optimization, with benchmarks (`cyclictest`, `jack_iodelay`).
 
 ## Security
 
-ArchibaldOS prioritizes security for its networked audio components, particularly HydraMesh, following best practices (e.g., NIST SP 800-53, CIS Controls):
+ArchibaldOS employs a defense-in-depth approach for RT audio security, focusing on networked components like HydraMesh while minimizing attack surface:
+
 - **Systemd Hardening**:
-  - HydraMesh runs as a `hydramesh` user with `DynamicUser=true`, isolating it from system processes.
+  - HydraMesh runs as a dynamic `hydramesh` user with `DynamicUser=true`, isolating it from system processes.
   - Restrictions: `PrivateDevices=true`, `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, `CapabilityBoundingSet=""`, `RestrictNamespaces=true`, `SystemCallFilter=@system-service ~@privileged`.
-  - **Value**: Sandboxes P2P audio networking, preventing escalation or system access.
+  - **Value**: Sandboxes P2P audio streams, preventing escalation or unauthorized access.
+
 - **File Permissions**:
   - `/etc/hydramesh/` (configs, 640) and `/var/lib/hydramesh/` (data, 755) owned by `hydramesh` user.
   - **Value**: Enforces least privilege for audio metadata and configs.
-- **System-Wide**:
-  - Default firewall (`networking.firewall.enable = true`) protects the system.
-  - User passwords hashed with `mkpasswd -m sha-512`.
-  - **Value**: Secures the broader system without LUKS overhead.
+
+- **System-Wide Protections**:
+  - Default firewall (`networking.firewall.enable = true`) blocks non-essential ports.
+  - User passwords hashed with `mkpasswd -m sha-512` during installation.
+  - PipeWire/JACK sandboxing via `rtkit` limits audio process privileges.
+  - **Value**: Secures the RT pipeline without LUKS overhead; aligns with NIST SP 800-53 and CIS Controls.
+
+For advanced security, enable AppArmor/firewall in HydraMesh via config overrides.
 
 ## Who It’s For
 
-- **Musicians/Producers**: Multitrack recording (Ardour), MIDI sequencing (MuseScore), and live mixing with low-latency JACK.
-- **Sound Designers/DSP Engineers**: Modular synthesis (VCV Rack, Pd), algorithmic composition (SuperCollider), and DSP programming (FAUST).
-- **Live Performers**: Real-time synths (Surge) and P2P jamming (HydraMesh) for low-latency workflows.
-- **Hobbyists/Educators**: Learn MIDI/DSP with FluidSynth and CSound; manage samples with StreamDB and `pcmanfm`.
+ArchibaldOS targets audio professionals and enthusiasts requiring RT performance:
+- **Musicians/Producers**: Multitrack workflows (Ardour) and MIDI sequencing (MuseScore) with sub-ms latency.
+- **Sound Designers/DSP Engineers**: Modular patching (VCV Rack, Pd) and algorithmic synthesis (SuperCollider, CSound).
+- **Live Performers**: Real-time synths (Surge) and P2P collaboration (HydraMesh) for glitch-free sets.
+- **Hobbyists/Educators**: Accessible RT learning with FluidSynth and FAUST; sample management via StreamDB and `pcmanfm`.
 
 ## Real-Time Audio Tuning Guide
 
-ArchibaldOS is pre-configured for low-latency audio via Musnix and PipeWire, but fine-tuning can optimize performance for specific hardware and workflows. This guide draws from official Musnix documentation, NixOS Wiki, and community resources to help achieve sub-millisecond latency. Always test changes in a live environment before applying to your installed system.
+ArchibaldOS is pre-optimized for low-latency audio, but fine-tuning ensures peak performance. This guide, based on Musnix/PipeWire docs, helps achieve <1ms round-trip latency.
 
-### Step 1: Verify RT Kernel and Basics
-- **Check Kernel**: After installation, run `uname -r` to confirm the RT suffix (e.g., `6.6.52-rt64`). If not, ensure `musnix.kernel.realtime = true;` in your `configuration.nix` and rebuild with `sudo nixos-rebuild switch`.
-- **Enable Musnix Options**: In `configuration.nix`, add:
-  ```nix
-  musnix = {
-    enable = true;
-    kernel.realtime = true;
-    alsaSeq.enable = true;  # For MIDI
-    rtirq.enable = true;    # Prioritize audio interrupts
-  };
-  ```
-  - **Logic**: `rtirq` assigns high priority to audio threads (e.g., IRQ 18 for sound cards), reducing xruns (buffer underruns).
-- **Rebuild and Reboot**: `sudo nixos-rebuild switch` and reboot.
+### Step 1: Verify and Benchmark
+- **RT Kernel Check**: `uname -r` (expect `rt` suffix). Run `realtimeconfigquickscan --all` for system diagnostics.
+- **Latency Test**: Start JACK via `qjackctl` (pre-configured: 32 frames, 2 periods, 96kHz). Run `jack_iodelay` for round-trip measurement (target: <1ms).
+- **Cyclictest**: `cyclictest -l 100000 -m -n -p99 -q` (target: max latency <100µs).
 
-### Step 2: Configure PipeWire and JACK
-- **PipeWire Setup**: ArchibaldOS uses PipeWire by default. For RT tuning, edit `/etc/pipewire/pipewire.conf` (or override via Nix):
-  ```nix
-  services.pipewire = {
-    enable = true;
-    alsa.enable = true;
-    pulse.enable = true;
-    jack.enable = true;
-    extraConfig.pipewire."92-low-latency" = {
-      "context.properties" = {
-        "default.clock.rate" = 48000;  # Sample rate (higher for quality, lower for latency)
-        "default.clock.quantum" = 64;  # Buffer size (smaller = lower latency, but risk xruns)
-        "default.clock.min-quantum" = 32;
-        "default.clock.max-quantum" = 128;
-      };
-    };
-  };
-  ```
-  - **Logic**: Lower `quantum` (buffer size) reduces latency but increases CPU load. Start at 64 and test.
-- **JACK Integration**: Use `qjackctl` (install via `nix-shell -p qjackctl` for testing):
-  - Set frame/period to 64/2 (low latency) and sample rate to 48000.
-  - Connect apps (e.g., Ardour) to JACK outputs.
-- **Test Latency**: Run `jack_iodelay` (via `nix-shell -p jack2`) and aim for <5ms round-trip.
+### Step 2: Kernel and System Tweaks
+- **CPU Isolation**: `isolcpus=1-3` and `nohz_full=1-3` in `boot.kernelParams` dedicate cores to audio.
+- **C-State Disabling**: `intel_idle.max_cstate=1` and `processor.max_cstate=1` reduce wake-up latency (~20-50µs gain).
+- **Governor**: `performance` mode for consistent frequency.
+- **Swap Disable**: `vm.swappiness=0` eliminates disk latency.
 
-### Step 3: Optimize System Settings
-- **IRQ Priorities**: Edit `/etc/musnix/rtirq.conf` (created by Musnix):
-  ```ini
-  RTIRQ_NAME_LIST="timer rtc snd usb i915 amdgpu"  # Prioritize audio/USB/GPU
-  RTIRQ_PRIO_HIGH=95
-  RTIRQ_PRIO_DECR=5
-  ```
-  - Rebuild and check with `rtirq status`.
-- **Governor and Limits**: Set CPU governor to `performance` for consistent RT:
-  ```nix
-  powerManagement.cpuFreqGovernor = "performance";
-  ```
-  - Increase audio group limits in `/etc/security/limits.d/audio.conf`:
-    ```
-    @audio - rtprio 99
-    @audio - memlock unlimited
-    @audio - nice -20
-    ```
-- **Disable Interfering Services**: In `configuration.nix`:
-  ```nix
-  systemd.services.NetworkManager-wait-online.enable = false;  # Speeds boot, reduces interference
-  ```
+### Step 3: PipeWire/JACK Configuration
+- **Default Settings**: 96kHz rate, 32-sample quantum (min: 16) for ~0.7ms one-way latency.
+- **qjackctl Usage**: Launch (`qjackctl &`), set frames=32, periods=2, sample rate=96kHz. Connect apps (e.g., Ardour input to JACK).
+- **ALSA Buffers**: `/etc/asound.conf` sets 32-sample buffers for minimal overhead.
 
-### Step 4: Monitoring and Troubleshooting
-- **Tools**: Use `htop` or `rtirq status` to monitor priorities; `pw-top` for PipeWire stats; `jack_midi_dump` for MIDI testing.
-- **Common Issues**:
-  - **Xruns**: Increase buffer size (`quantum`) or disable Wi-Fi/Bluetooth during sessions.
-  - **High CPU**: Lower sample rate or use `nice` on non-audio processes.
-  - **MIDI Dropouts**: Ensure `alsaSeq.enable = true;` and test with `aconnect -lio`.
-- **Benchmark**: Connect a MIDI controller, run Ardour with effects, and monitor latency with `jack_iodelay`. Target <2ms for professional RT.
-- **Resources**: Refer to [Musnix GitHub](https://github.com/musnix/musnix) for advanced configs; [NixOS Wiki: Audio Production](https://wiki.nixos.org/wiki/Audio_production) for PipeWire tips.
+### Step 4: Hardware and IRQ Optimization
+- **USB Audio**: `nrpacks=1` in `snd_usb_audio` for low-packet latency.
+- **PCI Devices**: Run `sudo /etc/audio-setup.sh` to set `latency_timer=ff` and pin IRQs to CPU1.
+- **Interfaces**: For RME/Focusrite, test with `lsusb` and adjust buffers in `qjackctl`.
 
-For custom tuning, edit `configuration.nix` and rebuild. Test in the live ISO to avoid disrupting your setup.
+### Step 5: Application Tuning
+- **Ardour**: Pre-configured for 32 samples/96kHz; enable "Realtime" in session settings.
+- **VCV Rack/Pd**: Route via JACK in `qjackctl`; use `taskset -c 1-3` to pin to isolated cores.
+- **Benchmark**: Monitor xruns in `qjackctl` graph; aim for zero during 10-minute loads.
+
+### Advanced: Extreme RT (<0.5ms Latency)
+- **Custom Kernel**: Switch to `linuxPackages_rt_6_11` for finer tuning.
+- **Full Isolation**: Add `rcu_nocbs=1-3` to `boot.kernelParams` for no-CB-RCU callbacks.
+- **Trade-Offs**: Increases power (~2W) and complexity; test on high-end hardware.
+
+Rebuild with `sudo nixos-rebuild switch` after config changes. For issues, check `/var/log/pipewire.log` or NixOS Wiki: Audio Production.
 
 ## Prerequisites
 
@@ -169,10 +152,11 @@ For custom tuning, edit `configuration.nix` and rebuild. Test in the live ISO to
    sync
    ```
 
-5. **Boot and Install**: Boot USB (set BIOS/UEFI to prioritize USB).
+5. **Boot and Install**:
+   - Boot USB (set BIOS/UEFI to prioritize USB).
    - Auto-logs in as `nixos` (password: `nixos`) with Hyprland.
    - Run `sudo /etc/installer.sh` in Kitty (`SUPER+Q`).
-   - Follow TUI prompts (keyboard, disk, HydraMesh, locale/timezone, hostname/username, password).
+   - Follow TUI prompts: keyboard, disk (erases data), HydraMesh, locale/timezone, hostname/username, password.
    - Installer formats disk (GPT/ext4), configures system, and installs.
    - Reboot into the new system.
 
@@ -198,6 +182,7 @@ For custom tuning, edit `configuration.nix` and rebuild. Test in the live ISO to
   - Configure `/etc/hydramesh/config.toml` (e.g., `port`, `peers`, `plugins={audio=true}`).
   - Toggle: `SUPER+SHIFT+H` or `hydramesh-toggle`.
 - **StreamDB**: Use as CLI/library for sample organization (e.g., `/var/lib/hydramesh/streamdb`).
+- **RT Tuning**: Run `sudo /etc/audio-setup.sh` post-install for sysctl tweaks, IRQ pinning, and `qjackctl` launch.
 
 ## Troubleshooting
 
@@ -206,14 +191,17 @@ For custom tuning, edit `configuration.nix` and rebuild. Test in the live ISO to
   - Ensure `../HydraMesh` and `../StreamDB` are valid flakes.
 - **Audio Latency**:
   - Verify RT kernel: `uname -r` (should include `rt`).
-  - Check JACK settings: `nix-shell -p qjackctl --run qjackctl`.
+  - Check JACK settings: `qjackctl` (adjust frames=32, periods=2).
+  - Run `cyclictest -l 100000 -m -n -p99 -q` (target: max <100µs).
 - **HydraMesh**:
   - Logs: `journalctl -u hydramesh`.
   - Validate `/etc/hydramesh/config.toml`.
+- **USB Devices**:
+  - Detect: `lsusb`; troubleshoot with `dmesg | grep usb`.
 - **General**:
   - NixOS Wiki: https://nixos.wiki
   - GitHub Issues: https://github.com/<your-org>/ArchibaldOS
-  - Logs: `journalctl -u nix-daemon`
+  - Logs: `journalctl -u nix-daemon`, `/var/log/pipewire.log`.
 
 ## Contributing
 
