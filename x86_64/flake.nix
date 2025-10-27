@@ -46,7 +46,7 @@
       musescore fluidsynth
 
       # Audio libs/tools
-      portaudio rtaudio faust juce csound supercollider
+      portaudio rtaudio faust juce csound supercollider guitarix
 
       # Synths
       surge dexed vcvrack
