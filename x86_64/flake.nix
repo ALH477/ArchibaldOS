@@ -26,7 +26,7 @@
 
     # Lean audio package list: Core RT audio essentials only
     audioPackages = with pkgs; [
-      ardour audacity fluidsynth musescore  # DAWs/MIDI
+      ardour audacity fluidsynth musescore guitarix # DAWs/MIDI
       csound faust portaudio rtaudio supercollider qjackctl  # DSP/Tools
       surge vcvrack pd  # Synths/Modular
     ];
