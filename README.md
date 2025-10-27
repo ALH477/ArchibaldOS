@@ -30,7 +30,7 @@ ArchibaldOS provides a focused set of features tailored for RT audio production:
 
 ### Audio Tools
 - **DAWs and MIDI**: Ardour (multitrack recording/editing), Audacity (waveform editing), MuseScore (notation/MIDI composition), FluidSynth (soundfont synthesis).
-- **DSP and Synthesis**: CSound (algorithmic synthesis), FAUST (functional DSP programming), PortAudio/RtAudio (cross-platform I/O), SuperCollider (live coding audio).
+- **DSP and Synthesis**: CSound (algorithmic synthesis), FAUST (functional DSP programming), PortAudio/RtAudio (cross-platform I/O), SuperCollider (live coding audio), and Guitarix (Amp Sim).
 - **Synths and Modular**: Surge (wavetable synthesis), VCV Rack (modular rack), Pure Data (Pd) (visual patching).
 - **Configuration**: `qjackctl` GUI for JACK server tuning (pre-configured for 32 frames, 2 periods, 96kHz).
 
@@ -41,7 +41,7 @@ ArchibaldOS provides a focused set of features tailored for RT audio production:
 - **Post-Install Script**: `audio-setup.sh` automates RT checks (`realtimeconfigquickscan`), latency tweaks (sysctl, RTC/HPET), hardware optimization (`setpci`, IRQ pinning), `qjackctl` launch, and kernel switching (RT to LTS via specialisations). Includes dry-run mode and logging.
 
 ### Networking and Metadata
-- **HydraMesh**: Optional P2P service for low-latency audio collaboration (toggle via `SUPER+SHIFT+H`), configurable via `/etc/hydramesh/config.toml` (e.g., gRPC/WebSocket transports, LoRaWAN plugins).
+- **HydraMesh**: Optional P2P service for low-latency audio collaboration (toggle via `SUPER+SHIFT+H`), configurable via `/etc/hydramesh/config.json` (e.g., gRPC/WebSocket transports, LoRaWAN plugins).
 - **StreamDB**: CLI/library for audio metadata/sample management, integrated with HydraMesh for distributed storage.
 
 ### Installation and Tuning
