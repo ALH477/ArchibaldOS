@@ -58,7 +58,7 @@
       pd
 
       # Other
-      obs-studio
+      obs-studio floorp-bin brave
 
       # Integrations
       hydramesh-pkg streamdb-pkg
