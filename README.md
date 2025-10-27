@@ -30,8 +30,7 @@ ArchibaldOS is engineered for real-time audio production, offering:
 - **P2P and Metadata**:
   - Optional HydraMesh for P2P audio networking (toggle via `SUPER+SHIFT+H`).
   - StreamDB for audio metadata/sample storage, integrated as a CLI/library.
-- **TUI Installer**: Configures disk (GPT/ext4, no LUKS), locale, timezone, user, and HydraMesh in a minimal TUI.
-- **Utilities**: `pcmanfm` for file management, `vim` for config editing, `brave` for online resources.
+- **TUI Installer**: Guides through keyboard, disk (GPT/ext4, no LUKS), HydraMesh, locale/timezone, hostname/user, and password in a minimal TUI.
 - **Customization**: Keybindings cheatsheet (`SUPER+SHIFT+K`) and wallpaper (`wall.jpg`) for a tailored UX.
 
 ## Security
@@ -55,6 +54,82 @@ ArchibaldOS prioritizes security for its networked audio components, particularl
 - **Sound Designers/DSP Engineers**: Modular synthesis (VCV Rack, Pd), algorithmic composition (SuperCollider), and DSP programming (FAUST).
 - **Live Performers**: Real-time synths (Surge) and P2P jamming (HydraMesh) for low-latency workflows.
 - **Hobbyists/Educators**: Learn MIDI/DSP with FluidSynth and CSound; manage samples with StreamDB and `pcmanfm`.
+
+## Real-Time Audio Tuning Guide
+
+ArchibaldOS is pre-configured for low-latency audio via Musnix and PipeWire, but fine-tuning can optimize performance for specific hardware and workflows. This guide draws from official Musnix documentation, NixOS Wiki, and community resources to help achieve sub-millisecond latency. Always test changes in a live environment before applying to your installed system.
+
+### Step 1: Verify RT Kernel and Basics
+- **Check Kernel**: After installation, run `uname -r` to confirm the RT suffix (e.g., `6.6.52-rt64`). If not, ensure `musnix.kernel.realtime = true;` in your `configuration.nix` and rebuild with `sudo nixos-rebuild switch`.
+- **Enable Musnix Options**: In `configuration.nix`, add:
+  ```nix
+  musnix = {
+    enable = true;
+    kernel.realtime = true;
+    alsaSeq.enable = true;  # For MIDI
+    rtirq.enable = true;    # Prioritize audio interrupts
+  };
+  ```
+  - **Logic**: `rtirq` assigns high priority to audio threads (e.g., IRQ 18 for sound cards), reducing xruns (buffer underruns).
+- **Rebuild and Reboot**: `sudo nixos-rebuild switch` and reboot.
+
+### Step 2: Configure PipeWire and JACK
+- **PipeWire Setup**: ArchibaldOS uses PipeWire by default. For RT tuning, edit `/etc/pipewire/pipewire.conf` (or override via Nix):
+  ```nix
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    pulse.enable = true;
+    jack.enable = true;
+    extraConfig.pipewire."92-low-latency" = {
+      "context.properties" = {
+        "default.clock.rate" = 48000;  # Sample rate (higher for quality, lower for latency)
+        "default.clock.quantum" = 64;  # Buffer size (smaller = lower latency, but risk xruns)
+        "default.clock.min-quantum" = 32;
+        "default.clock.max-quantum" = 128;
+      };
+    };
+  };
+  ```
+  - **Logic**: Lower `quantum` (buffer size) reduces latency but increases CPU load. Start at 64 and test.
+- **JACK Integration**: Use `qjackctl` (install via `nix-shell -p qjackctl` for testing):
+  - Set frame/period to 64/2 (low latency) and sample rate to 48000.
+  - Connect apps (e.g., Ardour) to JACK outputs.
+- **Test Latency**: Run `jack_iodelay` (via `nix-shell -p jack2`) and aim for <5ms round-trip.
+
+### Step 3: Optimize System Settings
+- **IRQ Priorities**: Edit `/etc/musnix/rtirq.conf` (created by Musnix):
+  ```ini
+  RTIRQ_NAME_LIST="timer rtc snd usb i915 amdgpu"  # Prioritize audio/USB/GPU
+  RTIRQ_PRIO_HIGH=95
+  RTIRQ_PRIO_DECR=5
+  ```
+  - Rebuild and check with `rtirq status`.
+- **Governor and Limits**: Set CPU governor to `performance` for consistent RT:
+  ```nix
+  powerManagement.cpuFreqGovernor = "performance";
+  ```
+  - Increase audio group limits in `/etc/security/limits.d/audio.conf`:
+    ```
+    @audio - rtprio 99
+    @audio - memlock unlimited
+    @audio - nice -20
+    ```
+- **Disable Interfering Services**: In `configuration.nix`:
+  ```nix
+  systemd.services.NetworkManager-wait-online.enable = false;  # Speeds boot, reduces interference
+  ```
+
+### Step 4: Monitoring and Troubleshooting
+- **Tools**: Use `htop` or `rtirq status` to monitor priorities; `pw-top` for PipeWire stats; `jack_midi_dump` for MIDI testing.
+- **Common Issues**:
+  - **Xruns**: Increase buffer size (`quantum`) or disable Wi-Fi/Bluetooth during sessions.
+  - **High CPU**: Lower sample rate or use `nice` on non-audio processes.
+  - **MIDI Dropouts**: Ensure `alsaSeq.enable = true;` and test with `aconnect -lio`.
+- **Benchmark**: Connect a MIDI controller, run Ardour with effects, and monitor latency with `jack_iodelay`. Target <2ms for professional RT.
+- **Resources**: Refer to [Musnix GitHub](https://github.com/musnix/musnix) for advanced configs; [NixOS Wiki: Audio Production](https://wiki.nixos.org/wiki/Audio_production) for PipeWire tips.
+
+For custom tuning, edit `configuration.nix` and rebuild. Test in the live ISO to avoid disrupting your setup.
 
 ## Prerequisites
 
@@ -94,17 +169,10 @@ ArchibaldOS prioritizes security for its networked audio components, particularl
    sync
    ```
 
-5. **Boot and Install**:
-   - Boot USB (set BIOS/UEFI to prioritize USB).
+5. **Boot and Install**: Boot USB (set BIOS/UEFI to prioritize USB).
    - Auto-logs in as `nixos` (password: `nixos`) with Hyprland.
    - Run `sudo /etc/installer.sh` in Kitty (`SUPER+Q`).
-   - Follow TUI prompts:
-     - **Keyboard**: Select layout (e.g., `us`, `de`).
-     - **Disk**: Choose disk to wipe (warning: erases all data).
-     - **HydraMesh**: Enable/disable P2P audio networking.
-     - **Locale/Timezone**: Set (e.g., `en_US.UTF-8`, `America/Los_Angeles`).
-     - **Hostname/Username**: Configure (defaults: `archibaldos`, `audio-user`).
-     - **Password**: Set user password.
+   - Follow TUI prompts (keyboard, disk, HydraMesh, locale/timezone, hostname/username, password).
    - Installer formats disk (GPT/ext4), configures system, and installs.
    - Reboot into the new system.
 
@@ -120,7 +188,7 @@ ArchibaldOS prioritizes security for its networked audio components, particularl
   - Keybindings: `SUPER+Q` (Kitty), `SUPER+1-5` (workspaces), `XF86Audio*` (volume), `SUPER+SHIFT+H` (HydraMesh toggle), `SUPER+SHIFT+K` (cheatsheet).
 - **Audio Workflow**:
   - Launch Ardour/VCV Rack via Wofi or terminal.
-  - Test latency with `qjackctl` (available via `nix-shell` if needed).
+  - Test latency with `qjackctl` (install via `nix-shell -p qjackctl --run qjackctl`).
   - Use `pcmanfm` to manage samples, `vim` for MIDI scripts, `brave` for online libraries.
 - **HydraMesh**:
   - Enable in `/etc/nixos/configuration.nix`:
@@ -158,8 +226,7 @@ ArchibaldOS prioritizes security for its networked audio components, particularl
 
 MIT License:
 
-```
-Copyright (c) 2025 ArchibaldOS Contributors
+Copyright (c) 2025 DeMoD LLC
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -178,7 +245,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
 
 **Note**: HydraMesh and StreamDB may have separate licenses (e.g., LGPL-3.0). See `../HydraMesh/LICENSE` and `../StreamDB/LICENSE`.
 
@@ -186,3 +252,5 @@ SOFTWARE.
 
 - **Dependencies**: Ensure `../wallpaper.jpg`, `../HydraMesh`, `../StreamDB` exist before building.
 - **ARM64**: Set `system = "aarch64-linux"` in `flake.nix` and verify Hyprland/Musnix compatibility.
+- **HydraMesh/StreamDB**: Assumes `hydramesh-toggle` and `hydramesh-status` binaries; provide `hydramesh_config_editor.py` if needed.
+- **Memory Management**: To forget conversation history, go to "Data Controls" in settings or click the book icon beneath messages to remove specific chats.
