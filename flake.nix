@@ -1,51 +1,90 @@
 {
-  description = "ArchibaldOS by DeMoD LLC: NixOS for Real-Time Audio Production";
+  description = "ArchibaldOS Determinate NixOS flake for MIDI and real-time audio FOSS tools with Musnix RT kernel";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    musnix.url = "github:musnix/musnix";  # For integrated RT kernel and audio opts
-    hyprland.url = "github:hyprwm/Hyprland";  # Optional
+    musnix.url = "github:musnix/musnix";
   };
 
-  outputs = { self, nixpkgs, musnix, hyprland, ... }: {
-    nixosConfigurations.archibald = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        ./configuration.nix
-        musnix.nixosModules.musnix  # RT kernel integration
-      ];
+  outputs = { self, nixpkgs, musnix }: let
+    system = "x86_64-linux";  # Adjust for your architecture (e.g., "aarch64-linux")
+    pkgs = import nixpkgs {
+      inherit system;
+      config.allowUnfree = true;  # Required for some tools like Vital
     };
 
-    # ISO configuration for live booting with RT audio
-    nixosConfigurations.archibald-iso = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"  # Minimal for lean live boot
-        # Or use installation-cd-graphical-plasma.nix for KDE live
+    # Separate package list for modularity
+    audioPackages = with pkgs; [
+      # DAWs
+      ardour lmms zrythm stargate audacity mixxx
 
-        ./configuration.nix
-        musnix.nixosModules.musnix
+      # MIDI Tools
+      musescore fluidsynth
 
-        {
-          # ISO overrides for live hardware testing
-          users.users.youruser = {
-            isNormalUser = true;
-            extraGroups = [ "wheel" "audio" "realtime" "networkmanager" ];
-            shell = pkgs.zsh;
-            initialPassword = "archibald";  # Change post-boot
-          };
-          networking.firewall.enable = false;  # For live; re-enable on install
-          services.openssh.enable = true;  # Remote access if needed
-          boot.kernelParams = [ "preempt=full" "threadirqs" "copytoram" ];
-          isoImage = {
-            isoName = "archibaldos-${config.system.nixos.label}.iso";
-            makeEfiBootable = true;
-            makeUsbBootable = true;
-          };
-          # Include post-install script in live environment
-          environment.systemPackages = config.environment.systemPackages ++ [ (pkgs.writeShellScriptBin "post-install-audio-setup.sh" (builtins.readFile ./post-install-audio-setup.sh)) ];
-        }
-      ];
+      # Audio Processing Libraries/Tools
+      portaudio rtaudio faust juce csound supercollider
+
+      # Synths
+      amsynth dexed surge vital vcvrack sfizz
+
+      # Effects (examples; expand as needed)
+      dragonfly-reverb
+
+      # Modular & Node-Based
+      pd plugdata cardinal
+
+      # Other
+      obs-studio
+    ];
+  in {
+    nixosConfigurations = {
+      audio-workstation = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          musnix.nixosModules.musnix
+          ({ config, pkgs, ... }: {
+            # System details: Musnix and RT kernel configuration
+            musnix.enable = true;
+            musnix.kernel.realtime = true;  # Applies CONFIG_PREEMPT_RT patch
+            musnix.kernel.packages = pkgs.linuxPackages_latest_rt;  # Or specify version, e.g., pkgs.linuxPackages_6_11_rt
+            musnix.alsaSeq.enable = true;  # For MIDI sequencing
+            musnix.ffado.enable = false;   # Enable if using FireWire audio
+            musnix.rtcqs.enable = true;    # Installs rtcqs for system checks
+            musnix.soundcardPciId = "";    # Set to your soundcard PCI ID if applicable (e.g., "00:1b.0")
+            musnix.das_watchdog.enable = true;  # Prevents RT process hangs
+            musnix.rtirq.enable = true;    # Manages real-time IRQ priorities
+
+            # Audio configuration with PipeWire for low-latency
+            sound.enable = true;
+            hardware.pulseaudio.enable = false;
+            services.pipewire = {
+              enable = true;
+              alsa.enable = true;
+              alsa.support32Bit = true;
+              pulse.enable = true;
+              jack.enable = true;  # JACK support for pro audio
+            };
+
+            # Security and user setup for audio
+            security.rtkit.enable = true;  # For real-time priorities
+            users.users.yourusername = {  # Replace with your actual username
+              isNormalUser = true;
+              extraGroups = [ "audio" "jackaudio" ];
+            };
+
+            # Boot/kernel params for RT audio (optional tweaks)
+            boot.kernelParams = [ "threadirqs" ];  # Enables threaded IRQs for RT
+
+            # Install separated packages
+            environment.systemPackages = audioPackages;
+          })
+        ];
+      };
+    };
+
+    # Dev shell using the separated package list
+    devShells.${system}.default = pkgs.mkShell {
+      packages = audioPackages;
     };
   };
 }
