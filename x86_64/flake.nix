@@ -1,60 +1,86 @@
 {
-  description = "ArchibaldOS Determinate NixOS flake for MIDI and real-time audio FOSS tools with Musnix RT kernel";
+  description = "Audio-oriented ArchibaldOS: MIDI and real-time audio FOSS tools with Musnix RT kernel, Hyprland installer (no Calamares), HydraMesh, and StreamDB";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     musnix.url = "github:musnix/musnix";
+    hyprland.url = "github:hyprwm/Hyprland";
+    hydramesh.url = "path:../HydraMesh";  # Assumed flake in sibling dir
+    streamdb.url = "path:../StreamDB";    # Assumed Rust crate flake
+    disko.url = "github:nix-community/disko";  # Added for disk partitioning
+    disko.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, musnix }: let
-    system = "x86_64-linux";  # Adjust for your architecture (e.g., "aarch64-linux")
+  outputs = { self, nixpkgs, musnix, hyprland, hydramesh, streamdb, disko }: let
+    system = "x86_64-linux";  # x86_64; ARM64 later
     pkgs = import nixpkgs {
       inherit system;
-      config.allowUnfree = true;  # Required for some tools like Vital
+      config.allowUnfree = true;  # For tools like Vital
+      overlays = [
+        (final: prev: rec {
+          hyprland = hyprland.packages.${system}.hyprland;
+          hydramesh-pkg = hydramesh.packages.${system}.default or (pkgs.buildGoModule rec {
+            pname = "hydramesh";
+            version = "0.1.0";
+            src = hydramesh;
+            vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # Compute with `nix build`
+            meta = with pkgs.lib; { description = "P2P mesh networking for audio"; license = licenses.mit; };
+          });
+          streamdb-pkg = streamdb.packages.${system}.streamdb or (pkgs.rustPlatform.buildRustPackage rec {
+            pname = "streamdb";
+            version = "0.1.0";
+            src = streamdb;
+            cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # Compute with `nix build`
+            meta = with pkgs.lib; { description = "StreamDB for audio metadata storage"; license = licenses.mit; };
+          });
+        })
+      ];
     };
 
-    # Separate package list for modularity
+    # Audio package list
     audioPackages = with pkgs; [
       # DAWs
-      ardour lmms zrythm stargate audacity mixxx
+      ardour lmms audacity mixxx zrythm stargate
 
-      # MIDI Tools
+      # MIDI essentials
       musescore fluidsynth
 
-      # Audio Processing Libraries/Tools
+      # Audio libs/tools
       portaudio rtaudio faust juce csound supercollider
 
       # Synths
-      amsynth dexed surge vital vcvrack sfizz
+      surge dexed vcvrack
 
-      # Effects (examples; expand as needed)
+      # Effects
       dragonfly-reverb
 
-      # Modular & Node-Based
-      pd plugdata cardinal
+      # Modular
+      pd
 
       # Other
       obs-studio
+
+      # Integrations
+      hydramesh-pkg streamdb-pkg
     ];
+
+    wallpaperSrc = ../wallpaper.jpg;
   in {
     nixosConfigurations = {
-      audio-workstation = nixpkgs.lib.nixosSystem {
+      archibaldOS = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
           musnix.nixosModules.musnix
+          hyprland.nixosModules.default
           ({ config, pkgs, ... }: {
-            # System details: Musnix and RT kernel configuration
             musnix.enable = true;
-            musnix.kernel.realtime = true;  # Applies CONFIG_PREEMPT_RT patch
-            musnix.kernel.packages = pkgs.linuxPackages_latest_rt;  # Or specify version, e.g., pkgs.linuxPackages_6_11_rt
-            musnix.alsaSeq.enable = true;  # For MIDI sequencing
-            musnix.ffado.enable = false;   # Enable if using FireWire audio
-            musnix.rtcqs.enable = true;    # Installs rtcqs for system checks
-            musnix.soundcardPciId = "";    # Set to your soundcard PCI ID if applicable (e.g., "00:1b.0")
-            musnix.das_watchdog.enable = true;  # Prevents RT process hangs
-            musnix.rtirq.enable = true;    # Manages real-time IRQ priorities
+            musnix.kernel.realtime = true;
+            musnix.kernel.packages = pkgs.linuxPackages_latest_rt;
+            musnix.alsaSeq.enable = true;
+            musnix.rtcqs.enable = true;
+            musnix.das_watchdog.enable = true;
+            musnix.rtirq.enable = true;
 
-            # Audio configuration with PipeWire for low-latency
             sound.enable = true;
             hardware.pulseaudio.enable = false;
             services.pipewire = {
@@ -62,27 +88,1422 @@
               alsa.enable = true;
               alsa.support32Bit = true;
               pulse.enable = true;
-              jack.enable = true;  # JACK support for pro audio
+              jack.enable = true;
             };
 
-            # Security and user setup for audio
-            security.rtkit.enable = true;  # For real-time priorities
-            users.users.yourusername = {  # Replace with your actual username
+            security.rtkit.enable = true;
+            users.users.audio-user = {
               isNormalUser = true;
-              extraGroups = [ "audio" "jackaudio" ];
+              extraGroups = [ "audio" "jackaudio" "video" "networkmanager" "wheel" "docker" "wireshark" "disk" ];
+              home = "/home/audio-user";
+              createHome = true;
+              shell = pkgs.bash;
+              packages = [
+                (pkgs.runCommand "wallpaper" {} ''
+                  mkdir -p $out/Pictures
+                  cp ${wallpaperSrc} $out/Pictures/wall.jpg
+                '')
+              ];
             };
 
-            # Boot/kernel params for RT audio (optional tweaks)
-            boot.kernelParams = [ "threadirqs" ];  # Enables threaded IRQs for RT
+            boot.kernelParams = [ "threadirqs" ];
+            environment.systemPackages = audioPackages ++ [ pkgs.hyprpaper pkgs.waybar pkgs.wofi pkgs.kitty pkgs.dolphin pkgs.grim pkgs.slurp pkgs.wpctl pkgs.brightnessctl pkgs.playerctl pkgs.zenity pkgs.dialog pkgs.python3 ];
 
-            # Install separated packages
-            environment.systemPackages = audioPackages;
+            services.xserver.enable = true;
+            services.displayManager.sddm.enable = true;
+            services.displayManager.sddm.wayland.enable = true;
+            services.displayManager.sddm.settings = {
+              General.Background = "/etc/hypr/wallpaper.jpg";
+            };
+            environment.etc."hypr/wallpaper.jpg".source = wallpaperSrc;
+
+            programs.hyprland.enable = true;
+
+            # Integrated Hyprland configs and scripts (adapted for agnostic hardware)
+            environment.etc."hypr/hyprland.conf".text = ''
+              exec-once = kitty
+              exec-once = waybar
+              exec-once = hyprpaper
+              autogenerated = 0
+              monitor=,preferred,auto,1
+              $terminal = kitty
+              $fileManager = dolphin
+              $menu = wofi --show drun
+              env = XCURSOR_SIZE,23
+              env = HYPRCURSOR_SIZE,24
+              env = XCURSOR_THEME,Adwaita
+              general {
+                  gaps_in = 5
+                  gaps_out = 10
+                  border_size = 2
+                  col.active_border = rgba(33ff33aa) rgba(00ff00aa) 45deg
+                  col.inactive_border = rgba(595959aa)
+                  resize_on_border = true
+                  allow_tearing = false
+                  layout = dwindle
+              }
+              decoration {
+                  rounding = 12
+                  active_opacity = 1.0
+                  inactive_opacity = 0.9
+                  blur {
+                      enabled = true
+                      size = 8
+                      passes = 2
+                      vibrancy = 0.33
+                  }
+              }
+              animations {
+                  enabled = true
+                  bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+                  bezier = fractalEase, 0.22, 1, 0.36, 1
+                  animation = windows, 1, 7, myBezier, slide
+                  animation = windowsOut, 1, 7, default, popin 80%
+                  animation = border, 1, 10, fractalEase
+                  animation = fade, 1, 10, default
+                  animation = workspaces, 1, 6, myBezier, slidevert
+              }
+              dwindle {
+                  pseudotile = true
+                  preserve_split = true
+                  smart_split = true
+              }
+              master {
+                  new_status = master
+              }
+              misc {
+                  force_default_wallpaper = 0
+                  disable_hyprland_logo = true
+                  disable_splash_rendering = true
+              }
+              input {
+                  kb_layout = us
+                  follow_mouse = 1
+                  sensitivity = 0
+                  touchpad {
+                      natural_scroll = true
+                  }
+              }
+              gestures {
+                  workspace_swipe = true
+              }
+              $mainMod = SUPER
+              bind = $mainMod, Q, exec, $terminal
+              bind = $mainMod, C, killactive,
+              bind = $mainMod, O, exec, ~/.config/hypr/toggle_clamshell.sh
+              bind = $mainMod, R, exec, hyprctl keyword monitor ",preferred,auto,1"
+              bind = $mainMod, M, exit,
+              bind = $mainMod, E, exec, $fileManager
+              bind = $mainMod, V, togglefloating,
+              bind = $mainMod, D, exec, $menu
+              bind = $mainMod, P, pseudo,
+              bind = $mainMod, J, togglesplit,
+              bind = $mainMod, H, movefocus, l
+              bind = $mainMod, L, movefocus, r
+              bind = $mainMod, K, movefocus, u
+              bind = $mainMod, J, movefocus, d
+              bind = $mainMod, 1, workspace, 1
+              bind = $mainMod, 2, workspace, 2
+              bind = $mainMod, 3, workspace, 3
+              bind = $mainMod, 4, workspace, 4
+              bind = $mainMod, 5, workspace, 5
+              bind = $mainMod, 6, workspace, 6
+              bind = $mainMod, 7, workspace, 7
+              bind = $mainMod, 8, workspace, 8
+              bind = $mainMod, 9, workspace, 9
+              bind = $mainMod, 0, workspace, 10
+              bind = $mainMod SHIFT, 1, movetoworkspace, 1
+              bind = $mainMod SHIFT, 2, movetoworkspace, 2
+              bind = $mainMod SHIFT, 3, movetoworkspace, 3
+              bind = $mainMod SHIFT, 4, movetoworkspace, 4
+              bind = $mainMod SHIFT, 5, movetoworkspace, 5
+              bind = $mainMod SHIFT, 6, movetoworkspace, 6
+              bind = $mainMod SHIFT, 7, movetoworkspace, 7
+              bind = $mainMod SHIFT, 8, movetoworkspace, 8
+              bind = $mainMod SHIFT, 9, movetoworkspace, 9
+              bind = $mainMod SHIFT, 0, movetoworkspace, 10
+              bind = $mainMod, S, togglespecialworkspace, demod
+              bind = $mainMod SHIFT, S, movetoworkspace, special:demod
+              bind = $mainMod, mouse_down, workspace, e+1
+              bind = $mainMod, mouse_up, workspace, e-1
+              bindm = $mainMod, mouse:272, movewindow
+              bindm = $mainMod, mouse:273, resizewindow
+              bindel = ,XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
+              bindel = ,XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+              bindel = ,XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+              bindel = ,XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+              bindel = ,XF86MonBrightnessUp, exec, brightnessctl s 10%+
+              bindel = ,XF86MonBrightnessDown, exec, brightnessctl s 10%-
+              bindl = , XF86AudioNext, exec, playerctl next
+              bindl = , XF86AudioPause, exec, playerctl play-pause
+              bindl = , XF86AudioPlay, exec, playerctl play-pause
+              bindl = , XF86AudioPrev, exec, playerctl previous
+              bind = $mainMod, PRINT, exec, grim ~/Pictures/Screenshots/screenshot-$(date +%F-%T).png
+              bind = $mainMod SHIFT, PRINT, exec, grim -g "$(slurp)" ~/Pictures/Screenshots/screenshot-$(date +%F-%T).png
+              bind = $mainMod SHIFT, F1, exec, hyprctl keyword monitor ",1920x1080@60,auto,1"
+              bind = $mainMod SHIFT, F2, exec, hyprctl keyword monitor ",1280x720@165,auto,1"
+              bind = $mainMod SHIFT, F3, exec, hyprctl keyword monitor ",1920x1080@165,auto,1"
+              bind = $mainMod SHIFT, F4, exec, hyprctl keyword monitor ",2560x1600@165,auto,1"
+              bind = $mainMod SHIFT, F5, exec, hyprctl keyword monitor ",mirror,preferred"
+              bind = $mainMod SHIFT, W, exec, ~/.config/hypr/toggle_resolution.sh
+              bind = $mainMod SHIFT, P, exec, ${pkgs.python3}/bin/python ~/.config/hypr/hyprland_config_modifier.py
+              bind = $mainMod SHIFT, T, exec, ${pkgs.python3}/bin/python ~/.config/hypr/theme_changer.py
+              bind = $mainMod SHIFT, A, exec, ${pkgs.python3}/bin/python ~/.config/hypr/webapp_to_wofi.py
+              bind = $mainMod SHIFT, H, exec, hydramesh-toggle
+              bind = $mainMod SHIFT, E, exec, ${pkgs.python3}/bin/python ~/.config/hypr/hydramesh_config_editor.py
+              bind = $mainMod SHIFT, K, exec, ~/.config/hypr/keybindings_cheatsheet.sh
+              windowrulev2 = suppressevent maximize, class:.*
+              windowrulev2 = float, class:^(pavucontrol)$
+              windowrulev2 = float, class:^(blueman-manager)$
+              windowrulev2 = opacity 0.95, class:^(kitty)$
+              windowrulev2 = nofocus,class:^$,title:^$,xwayland:1,floating:1,fullscreen:0,pinned:0
+              bindl = ,switch:off:Lid Switch,exec,~/.config/hypr/lid.sh open
+              bindl = ,switch:on:Lid Switch,exec,~/.config/hypr/lid.sh close
+            '';
+            environment.etc."hypr/hyprpaper.conf".text = ''
+              preload = ~/Pictures/wall.jpg
+              wallpaper = ,~/Pictures/wall.jpg
+              preload = /etc/hypr/wallpaper.jpg
+              wallpaper = ,/etc/hypr/wallpaper.jpg
+            '';
+            environment.etc."waybar/config".text = ''
+              {
+                  "layer": "top",
+                  "position": "top",
+                  "height": 32,
+                  "modules-left": [],
+                  "modules-center": ["custom/demod", "hyprland/workspaces", "cpu", "memory", "clock", "battery", "network", "custom/hydramesh", "tray"],
+                  "modules-right": [],
+                  "hyprland/workspaces": {
+                      "format": "{icon}",
+                      "on-click": "activate",
+                      "persistent-workspaces": {"*": 5}
+                  },
+                  "cpu": {
+                      "format": "\uf2db {usage}%",
+                      "tooltip": true
+                  },
+                  "memory": {
+                      "format": "\uf538 {used:0.1f}GiB",
+                      "tooltip": true
+                  },
+                  "clock": {
+                      "format": "\uf017 {:%H:%M}",
+                      "tooltip-format": "{:%Y-%m-%d}"
+                  },
+                  "battery": {
+                      "format": "{capacity}% \uf240",
+                      "format-charging": "{capacity}% \uf0e7",
+                      "states": {"warning": 30, "critical": 15}
+                  },
+                  "network": {
+                      "format-wifi": "\uf1eb {essid}",
+                      "format-ethernet": "\uf6ff {ipaddr}",
+                      "format-disconnected": "\u26a0 Disconnected",
+                      "tooltip-format": "{ifname}: {ipaddr}"
+                  },
+                  "custom/demod": {
+                      "format": "\uf121 DeMoD LLC",
+                      "tooltip": "Founder: Innovating with VIM and Sierpinski fractals"
+                  },
+                  "custom/hydramesh": {
+                      "format": "{}",
+                      "exec": "${pkgs.hydramesh-pkg}/bin/hydramesh-status",  # Adjust if needed
+                      "return-type": "json",
+                      "interval": 5,
+                      "tooltip": true
+                  },
+                  "tray": {
+                      "icon-size": 16,
+                      "spacing": 10
+                  }
+              }
+            '';
+            environment.etc."waybar/style.css".text = ''
+              * {
+                  border: none;
+                  border-radius: 0;
+                  font-family: "FiraCode Nerd Font", monospace;
+                  font-size: 14px;
+                  min-height: 0;
+              }
+              window#waybar {
+                  background: transparent;
+                  color: #ffffff;
+                  transition: all 0.3s ease;
+              }
+              .modules-center {
+                  background: rgba(10, 10, 10, 0.85);
+                  border-radius: 16px;
+                  padding: 0 20px;
+                  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+                  transition: box-shadow 0.3s ease;
+              }
+              .modules-center:hover {
+                  box-shadow: 0 4px 8px rgba(51,255,51,0.5);
+              }
+              #workspaces button {
+                  padding: 0 12px;
+                  color: #ffffff;
+                  background: transparent;
+              }
+              #workspaces button.active {
+                  background: rgba(51, 255, 51, 0.3);
+                  border-radius: 8px;
+              }
+              #cpu, #memory, #clock, #battery, #network, #custom-demod, #custom-hydramesh, #tray {
+                  padding: 0 12px;
+                  color: #33ff33;
+              }
+              #custom-hydramesh.hydramesh-active {
+                  color: #33ff33;
+              }
+              #custom-hydramesh.hydramesh-inactive {
+                  color: #ff3333;
+              }
+              #tray {
+                  background: transparent;
+              }
+            '';
+            environment.etc."wofi/style.css".text = ''
+              window {
+                  margin: 0px;
+                  border: 2px solid #33ff33;
+                  background-color: rgba(10, 10, 10, 0.85);
+                  border-radius: 12px;
+                  font-family: "FiraCode Nerd Font", monospace;
+                  font-size: 14px;
+              }
+              #input {
+                  margin: 5px;
+                  border: none;
+                  color: #ffffff;
+                  background-color: rgba(51, 255, 51, 0.1);
+              }
+              #inner-box {
+                  margin: 5px;
+                  border: none;
+                  background-color: transparent;
+              }
+              #outer-box {
+                  margin: 5px;
+                  border: none;
+                  background-color: transparent;
+              }
+              #scroll {
+                  margin: 0px;
+                  border: none;
+              }
+              #text {
+                  margin: 5px;
+                  border: none;
+                  color: #33ff33;
+              }
+              #entry:selected {
+                  background-color: rgba(51, 255, 51, 0.3);
+                  border-radius: 8px;
+                  border: none;
+              }
+            '';
+            environment.etc."hypr/lid.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                hyprctl keyword monitor ",disable"
+                if [[ $1 == "open" ]]; then
+                  hyprctl keyword monitor ",preferred,auto,1"
+                fi
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/toggle_clamshell.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                INTERNAL=""
+                EXTERNAL=""
+                if hyprctl monitors | grep -q "$EXTERNAL"; then
+                  if hyprctl monitors | grep -q "$INTERNAL" && ! hyprctl monitors | grep -q "$INTERNAL.*(disabled)"; then
+                    hyprctl keyword monitor "$INTERNAL,disable"
+                    notify-send "Clamshell Mode" "Internal screen disabled"
+                  else
+                    hyprctl keyword monitor "$INTERNAL,preferred,auto,1"
+                    notify-send "Clamshell Mode" "Internal screen enabled"
+                  fi
+                else
+                  notify-send "Clamshell Mode" "No external monitor connected"
+                fi
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/toggle_resolution.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                set -e
+                CURRENT=$(hyprctl monitors | grep -oP ',\K[^,]+' | head -1)
+                case "$CURRENT" in
+                  "800x600@60") hyprctl keyword monitor ",1280x720@165,auto,1"; notify-send "Resolution" "Set to 1280x720@165";;
+                  "1280x720@165") hyprctl keyword monitor ",1920x1080@165,auto,1"; notify-send "Resolution" "Set to 1920x1080@165";;
+                  "1920x1080@165") hyprctl keyword monitor ",2560x1600@165,auto,1"; notify-send "Resolution" "Set to 2560x1600@165";;
+                  *) hyprctl keyword monitor ",800x600@60,auto,1"; notify-send "Resolution" "Set to 800x600@60";;
+                esac
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/hyprland_config_modifier.py" = {
+              text = ''
+                #!/usr/bin/env python3
+                import os
+                import subprocess
+                from pathlib import Path
+
+                CONFIG_PATH = Path.home() / ".config/hypr/hyprland.conf"
+                WALLPAPER_PATH = Path.home() / "Pictures/wall.jpg"
+
+                def update_wallpaper(new_wallpaper):
+                    hyprpaper_conf = Path.home() / ".config/hypr/hyprpaper.conf"
+                    if not hyprpaper_conf.exists():
+                        print("Error: hyprpaper.conf not found")
+                        return
+                    with open(hyprpaper_conf, "r") as f:
+                        lines = f.readlines()
+                    with open(hyprpaper_conf, "w") as f:
+                        for line in lines:
+                            if line.startswith("wallpaper ="):
+                                f.write(f"wallpaper = ,{new_wallpaper}\n")
+                            elif line.startswith("preload ="):
+                                f.write(f"preload = {new_wallpaper}\n")
+                            else:
+                                f.write(line)
+                    subprocess.run(["pkill", "hyprpaper"], check=False)
+                    subprocess.run(["hyprpaper"], check=False)
+                    print(f"Wallpaper updated to {new_wallpaper}")
+
+                def add_keybinding(key, command):
+                    if not CONFIG_PATH.exists():
+                        print("Error: hyprland.conf not found")
+                        return
+                    with open(CONFIG_PATH, "r") as f:
+                        lines = f.readlines()
+                    with open(CONFIG_PATH, "w") as f:
+                        key_exists = False
+                        for line in lines:
+                            if line.startswith(f"bind={key},"):
+                                f.write(f"bind={key},exec,{command}\n")
+                                key_exists = True
+                            else:
+                                f.write(line)
+                        if not key_exists:
+                            f.write(f"bind={key},exec,{command}\n")
+                    print(f"Added/updated keybinding: {key} -> {command}")
+
+                def main():
+                    print("Hyprland Config Modifier")
+                    choice = input("1. Change wallpaper\n2. Add keybinding\nChoose (1/2): ")
+                    if choice == "1":
+                        if WALLPAPER_PATH.exists():
+                            update_wallpaper(str(WALLPAPER_PATH))
+                        else:
+                            new_wallpaper = input("Enter full path to new wallpaper: ")
+                            if Path(new_wallpaper).exists():
+                                update_wallpaper(new_wallpaper)
+                            else:
+                                print("Error: Wallpaper file does not exist")
+                    elif choice == "2":
+                        key = input("Enter keybinding (e.g., SUPER SHIFT,T): ")
+                        command = input("Enter command to bind: ")
+                        add_keybinding(key, command)
+                    else:
+                        print("Invalid choice")
+
+                if __name__ == "__main__":
+                    main()
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/theme_changer.py" = {
+              text = ''
+                #!/usr/bin/env python3
+                import os
+                import re
+                import subprocess
+                from pathlib import Path
+
+                def hex_to_rgb(hex_str):
+                    hex_str = hex_str.lstrip('#')
+                    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+
+                def rgb_to_hex(r, g, b):
+                    return f'#{r:02x}{g:02x}{b:02x}'
+
+                def replace_colors(content, old_primary, new_primary, old_secondary, new_secondary):
+                    content = content.replace(old_primary, new_primary)
+                    content = content.replace(old_secondary, new_secondary)
+                    content = content.replace(f'rgba({old_primary[1:]}aa)', f'rgba({new_primary[1:]}aa)')
+                    content = content.replace(f'rgba({old_secondary[1:]}aa)', f'rgba({new_secondary[1:]}aa)')
+                    old_p_rgb = hex_to_rgb(old_primary)
+                    new_p_rgb = hex_to_rgb(new_primary)
+                    old_s_rgb = hex_to_rgb(old_secondary)
+                    new_s_rgb = hex_to_rgb(new_secondary)
+                    def repl(match):
+                        r, g, b, a = int(match.group(1)), int(match.group(2)), int(match.group(3)), match.group(4)
+                        if (r, g, b) == old_p_rgb:
+                            nr, ng, nb = new_p_rgb
+                            return f'rgba({nr},{ng},{nb},{a})'
+                        if (r, g, b) == old_s_rgb:
+                            nr, ng, nb = new_s_rgb
+                            return f'rgba({nr},{ng},{nb},{a})'
+                        return match.group(0)
+                    content = re.sub(r'rgba\((\d+),(\d+),(\d+),(\d+\.?\d*)\)', repl, content)
+                    return content
+
+                def main():
+                    themes = {
+                        'green': {'primary': '#33ff33', 'secondary': '#00ff00'},
+                        'blue': {'primary': '#3333ff', 'secondary': '#0000ff'},
+                        'red': {'primary': '#ff3333', 'secondary': '#ff0000'},
+                        'purple': {'primary': '#ff33ff', 'secondary': '#ff00ff'},
+                        'nord': {'primary': '#81a1c1', 'secondary': '#a3be8c'},
+                        'dracula': {'primary': '#bd93f9', 'secondary': '#50fa7b'},
+                        'gruvbox': {'primary': '#fabd2f', 'secondary': '#b8bb26'},
+                        'solarized': {'primary': '#268bd2', 'secondary': '#859900'},
+                        'catppuccin': {'primary': '#cba6f7', 'secondary': '#a6e3a1'},
+                        'tokyonight': {'primary': '#7aa2f7', 'secondary': '#9ece6a'},
+                    }
+                    print("Unified Theme Changer for Hyprland, Waybar, Wofi")
+                    print("Available themes: green (default), blue, red, purple, nord, dracula, gruvbox, solarized, catppuccin, tokyonight, custom")
+                    choice = input("Enter theme name: ").lower()
+                    if choice == 'custom':
+                        primary = input("Enter primary hex (e.g., #33ff33): ")
+                        secondary = input("Enter secondary hex (e.g., #00ff00): ")
+                    elif choice in themes:
+                        primary = themes[choice]['primary']
+                        secondary = themes[choice]['secondary']
+                    else:
+                        print("Invalid theme. Using green.")
+                        primary = themes['green']['primary']
+                        secondary = themes['green']['secondary']
+                    old_primary = '#33ff33'
+                    old_secondary = '#00ff00'
+                    files = [
+                        Path.home() / ".config/hypr/hyprland.conf",
+                        Path.home() / ".config/waybar/style.css",
+                        Path.home() / ".config/wofi/style.css",
+                    ]
+                    for file_path in files:
+                        if file_path.exists():
+                            content = file_path.read_text()
+                            new_content = replace_colors(content, old_primary, primary, old_secondary, secondary)
+                            file_path.write_text(new_content)
+                            print(f"Updated {file_path}")
+                    subprocess.run(["hyprctl", "reload"], check=False)
+                    subprocess.run(["pkill", "waybar"], check=False)
+                    subprocess.run(["waybar"], check=False)
+                    print("Theme applied. Wofi changes apply on next launch.")
+                if __name__ == "__main__":
+                    main()
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/webapp_to_wofi.py" = {
+              text = ''
+                #!/usr/bin/env python3
+                import os
+                from pathlib import Path
+
+                def main():
+                    print("Web App to Wofi")
+                    app_name = input("Enter web app name (e.g., Notion): ")
+                    if not app_name:
+                        print("Error: App name cannot be empty")
+                        return
+                    url = input("Enter URL (e.g., https://notion.so): ")
+                    if not url.startswith(('http://', 'https://')):
+                        print("Error: URL must start with http:// or https://")
+                        return
+                    icon_path = input("Enter icon path (leave blank for default browser icon): ")
+                    if icon_path and not Path(icon_path).exists():
+                        print("Error: Icon file does not exist")
+                        return
+                    print("Select browser: 1. Firefox, 2. Brave, 3. Default (xdg-open)")
+                    browser_choice = input("Enter choice (1-3): ")
+                    if browser_choice == "1":
+                        browser = "firefox"
+                    elif browser_choice == "2":
+                        browser = "brave"
+                    else:
+                        browser = "xdg-open"
+                    desktop_file = Path.home() / f".local/share/applications/webapp-{app_name.lower().replace(' ', '-')}.desktop"
+                    desktop_content = f"""
+                [Desktop Entry]
+                Name={app_name}
+                Exec={browser} {url}
+                Type=Application
+                Terminal=false
+                Categories=Network;WebBrowser;
+                """
+                    if icon_path:
+                        desktop_content += f"Icon={icon_path}\n"
+                    desktop_file.write_text(desktop_content.strip())
+                    print(f"Created {desktop_file} for Wofi")
+                    print(f"Launch via Wofi (SUPER+D) by searching '{app_name}'")
+
+                if __name__ == "__main__":
+                    main()
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/keybindings_cheatsheet.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                zenity --info --title="Hyprland Keybindings Cheat Sheet" --text="SUPER + Q: Open Terminal\nSUPER + E: Open File Manager\nSUPER + D: Open Wofi Launcher\nSUPER + SHIFT + W: Toggle Resolution\nSUPER + SHIFT + P: Hyprland Config Modifier\nSUPER + SHIFT + T: Theme Changer\nSUPER + SHIFT + A: Add Web App to Wofi\nSUPER + SHIFT + H: Toggle HydraMesh Service\nSUPER + SHIFT + E: HydraMesh Config Editor\nSUPER + SHIFT + K: Show this Cheat Sheet\nSUPER + 1-0: Switch Workspaces\nSUPER + SHIFT + 1-0: Move Window to Workspace\nSUPER + PRINT: Screenshot Desktop\nSUPER + SHIFT + PRINT: Screenshot Region\nAnd more - check ~/.config/hypr/hyprland.conf for full list."
+              '';
+              mode = "0755";
+            };
+            environment.etc."applications/toggle_resolution.desktop".text = ''
+              [Desktop Entry]
+              Name=Toggle Resolution
+              Exec=toggle_resolution
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/hyprland_config_modifier.desktop".text = ''
+              [Desktop Entry]
+              Name=Hyprland Config Modifier
+              Exec=hyprland_config_modifier
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/theme_changer.desktop".text = ''
+              [Desktop Entry]
+              Name=Theme Changer
+              Exec=theme_changer
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/webapp_to_wofi.desktop".text = ''
+              [Desktop Entry]
+              Name=Add Web App to Wofi
+              Exec=webapp_to_wofi
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/hydramesh_toggle.desktop".text = ''
+              [Desktop Entry]
+              Name=Toggle HydraMesh Service
+              Exec=hydramesh-toggle
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/hydramesh_config_editor.desktop".text = ''
+              [Desktop Entry]
+              Name=HydraMesh Config Editor
+              Exec=hydramesh-config-editor
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/keybindings_cheatsheet.desktop".text = ''
+              [Desktop Entry]
+              Name=Keybindings Cheat Sheet
+              Exec=keybindings-cheatsheet
+              Type=Application
+              Terminal=false
+            '';
+
+            services.xserver.windowManager.dwm.enable = true;
+
+            systemd.services.hydramesh = {
+              description = "HydraMesh P2P Service";
+              wantedBy = [ "multi-user.target" ];
+              serviceConfig = {
+                ExecStart = "${pkgs.hydramesh-pkg}/bin/hydramesh --config /etc/hydramesh/config.toml";
+                Restart = "always";
+              };
+              environment = { SYSTEMD_WANTS = "network-online.target"; };
+            };
+          })
+        ];
+      };
+
+      installer = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-base.nix"
+          "${nixpkgs}/nixos/modules/installer/cd-dvd/channel.nix"
+          disko.nixosModules.disko
+          musnix.nixosModules.musnix
+          hyprland.nixosModules.default
+          ({ config, pkgs, lib, ... }: {
+            isoImage.isoBaseName = "archibaldOS-audio";
+            isoImage.isoName = "${config.isoImage.isoBaseName}-${config.system.nixos.release}-${system}.iso";
+            isoImage.edition = "hyprland";
+
+            musnix.enable = true;
+
+            services.xserver.enable = true;
+            services.displayManager.sddm.enable = true;
+            services.displayManager.sddm.wayland.enable = true;
+            services.displayManager.autoLogin.enable = true;
+            services.displayManager.autoLogin.user = "nixos";
+            services.displayManager.defaultSession = "hyprland";
+
+            services.displayManager.sddm.settings = {
+              General.Background = "/etc/hypr/wallpaper.jpg";
+            };
+            environment.etc."hypr/wallpaper.jpg".source = wallpaperSrc;
+
+            programs.hyprland.enable = true;
+            environment.systemPackages = [ pkgs.hyprpaper pkgs.waybar pkgs.wofi pkgs.kitty pkgs.dolphin pkgs.grim pkgs.slurp pkgs.wpctl pkgs.brightnessctl pkgs.playerctl pkgs.zenity pkgs.dialog pkgs.python3 pkgs.disko pkgs.audacity pkgs.fluidsynth pkgs.hydramesh-pkg pkgs.streamdb-pkg ];
+
+            # Integrated configs for live
+            environment.etc."hypr/hyprland.conf".text = ''
+              exec-once = kitty
+              exec-once = waybar
+              exec-once = hyprpaper
+              autogenerated = 0
+              monitor=,preferred,auto,1
+              $terminal = kitty
+              $fileManager = dolphin
+              $menu = wofi --show drun
+              env = XCURSOR_SIZE,23
+              env = HYPRCURSOR_SIZE,24
+              env = XCURSOR_THEME,Adwaita
+              general {
+                  gaps_in = 5
+                  gaps_out = 10
+                  border_size = 2
+                  col.active_border = rgba(33ff33aa) rgba(00ff00aa) 45deg
+                  col.inactive_border = rgba(595959aa)
+                  resize_on_border = true
+                  allow_tearing = false
+                  layout = dwindle
+              }
+              decoration {
+                  rounding = 12
+                  active_opacity = 1.0
+                  inactive_opacity = 0.9
+                  blur {
+                      enabled = true
+                      size = 8
+                      passes = 2
+                      vibrancy = 0.33
+                  }
+              }
+              animations {
+                  enabled = true
+                  bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+                  bezier = fractalEase, 0.22, 1, 0.36, 1
+                  animation = windows, 1, 7, myBezier, slide
+                  animation = windowsOut, 1, 7, default, popin 80%
+                  animation = border, 1, 10, fractalEase
+                  animation = fade, 1, 10, default
+                  animation = workspaces, 1, 6, myBezier, slidevert
+              }
+              dwindle {
+                  pseudotile = true
+                  preserve_split = true
+                  smart_split = true
+              }
+              master {
+                  new_status = master
+              }
+              misc {
+                  force_default_wallpaper = 0
+                  disable_hyprland_logo = true
+                  disable_splash_rendering = true
+              }
+              input {
+                  kb_layout = us
+                  follow_mouse = 1
+                  sensitivity = 0
+                  touchpad {
+                      natural_scroll = true
+                  }
+              }
+              gestures {
+                  workspace_swipe = true
+              }
+              $mainMod = SUPER
+              bind = $mainMod, Q, exec, $terminal
+              bind = $mainMod, C, killactive,
+              bind = $mainMod, O, exec, ~/.config/hypr/toggle_clamshell.sh
+              bind = $mainMod, R, exec, hyprctl keyword monitor ",preferred,auto,1"
+              bind = $mainMod, M, exit,
+              bind = $mainMod, E, exec, $fileManager
+              bind = $mainMod, V, togglefloating,
+              bind = $mainMod, D, exec, $menu
+              bind = $mainMod, P, pseudo,
+              bind = $mainMod, J, togglesplit,
+              bind = $mainMod, H, movefocus, l
+              bind = $mainMod, L, movefocus, r
+              bind = $mainMod, K, movefocus, u
+              bind = $mainMod, J, movefocus, d
+              bind = $mainMod, 1, workspace, 1
+              bind = $mainMod, 2, workspace, 2
+              bind = $mainMod, 3, workspace, 3
+              bind = $mainMod, 4, workspace, 4
+              bind = $mainMod, 5, workspace, 5
+              bind = $mainMod, 6, workspace, 6
+              bind = $mainMod, 7, workspace, 7
+              bind = $mainMod, 8, workspace, 8
+              bind = $mainMod, 9, workspace, 9
+              bind = $mainMod, 0, workspace, 10
+              bind = $mainMod SHIFT, 1, movetoworkspace, 1
+              bind = $mainMod SHIFT, 2, movetoworkspace, 2
+              bind = $mainMod SHIFT, 3, movetoworkspace, 3
+              bind = $mainMod SHIFT, 4, movetoworkspace, 4
+              bind = $mainMod SHIFT, 5, movetoworkspace, 5
+              bind = $mainMod SHIFT, 6, movetoworkspace, 6
+              bind = $mainMod SHIFT, 7, movetoworkspace, 7
+              bind = $mainMod SHIFT, 8, movetoworkspace, 8
+              bind = $mainMod SHIFT, 9, movetoworkspace, 9
+              bind = $mainMod SHIFT, 0, movetoworkspace, 10
+              bind = $mainMod, S, togglespecialworkspace, demod
+              bind = $mainMod SHIFT, S, movetoworkspace, special:demod
+              bind = $mainMod, mouse_down, workspace, e+1
+              bind = $mainMod, mouse_up, workspace, e-1
+              bindm = $mainMod, mouse:272, movewindow
+              bindm = $mainMod, mouse:273, resizewindow
+              bindel = ,XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
+              bindel = ,XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+              bindel = ,XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+              bindel = ,XF86AudioMicMute, exec, wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+              bindel = ,XF86MonBrightnessUp, exec, brightnessctl s 10%+
+              bindel = ,XF86MonBrightnessDown, exec, brightnessctl s 10%-
+              bindl = , XF86AudioNext, exec, playerctl next
+              bindl = , XF86AudioPause, exec, playerctl play-pause
+              bindl = , XF86AudioPlay, exec, playerctl play-pause
+              bindl = , XF86AudioPrev, exec, playerctl previous
+              bind = $mainMod, PRINT, exec, grim ~/Pictures/Screenshots/screenshot-$(date +%F-%T).png
+              bind = $mainMod SHIFT, PRINT, exec, grim -g "$(slurp)" ~/Pictures/Screenshots/screenshot-$(date +%F-%T).png
+              bind = $mainMod SHIFT, F1, exec, hyprctl keyword monitor ",1920x1080@60,auto,1"
+              bind = $mainMod SHIFT, F2, exec, hyprctl keyword monitor ",1280x720@165,auto,1"
+              bind = $mainMod SHIFT, F3, exec, hyprctl keyword monitor ",1920x1080@165,auto,1"
+              bind = $mainMod SHIFT, F4, exec, hyprctl keyword monitor ",2560x1600@165,auto,1"
+              bind = $mainMod SHIFT, F5, exec, hyprctl keyword monitor ",mirror,preferred"
+              bind = $mainMod SHIFT, W, exec, ~/.config/hypr/toggle_resolution.sh
+              bind = $mainMod SHIFT, P, exec, ${pkgs.python3}/bin/python ~/.config/hypr/hyprland_config_modifier.py
+              bind = $mainMod SHIFT, T, exec, ${pkgs.python3}/bin/python ~/.config/hypr/theme_changer.py
+              bind = $mainMod SHIFT, A, exec, ${pkgs.python3}/bin/python ~/.config/hypr/webapp_to_wofi.py
+              bind = $mainMod SHIFT, H, exec, hydramesh-toggle
+              bind = $mainMod SHIFT, E, exec, ${pkgs.python3}/bin/python ~/.config/hypr/hydramesh_config_editor.py
+              bind = $mainMod SHIFT, K, exec, ~/.config/hypr/keybindings_cheatsheet.sh
+              windowrulev2 = suppressevent maximize, class:.*
+              windowrulev2 = float, class:^(pavucontrol)$
+              windowrulev2 = float, class:^(blueman-manager)$
+              windowrulev2 = opacity 0.95, class:^(kitty)$
+              windowrulev2 = nofocus,class:^$,title:^$,xwayland:1,floating:1,fullscreen:0,pinned:0
+              bindl = ,switch:off:Lid Switch,exec,~/.config/hypr/lid.sh open
+              bindl = ,switch:on:Lid Switch,exec,~/.config/hypr/lid.sh close
+            '';
+            environment.etc."hypr/hyprpaper.conf".text = ''
+              preload = ~/Pictures/wall.jpg
+              wallpaper = ,~/Pictures/wall.jpg
+              preload = /etc/hypr/wallpaper.jpg
+              wallpaper = ,/etc/hypr/wallpaper.jpg
+            '';
+            environment.etc."waybar/config".text = ''
+              {
+                  "layer": "top",
+                  "position": "top",
+                  "height": 32,
+                  "modules-left": [],
+                  "modules-center": ["custom/demod", "hyprland/workspaces", "cpu", "memory", "clock", "battery", "network", "custom/hydramesh", "tray"],
+                  "modules-right": [],
+                  "hyprland/workspaces": {
+                      "format": "{icon}",
+                      "on-click": "activate",
+                      "persistent-workspaces": {"*": 5}
+                  },
+                  "cpu": {
+                      "format": "\uf2db {usage}%",
+                      "tooltip": true
+                  },
+                  "memory": {
+                      "format": "\uf538 {used:0.1f}GiB",
+                      "tooltip": true
+                  },
+                  "clock": {
+                      "format": "\uf017 {:%H:%M}",
+                      "tooltip-format": "{:%Y-%m-%d}"
+                  },
+                  "battery": {
+                      "format": "{capacity}% \uf240",
+                      "format-charging": "{capacity}% \uf0e7",
+                      "states": {"warning": 30, "critical": 15}
+                  },
+                  "network": {
+                      "format-wifi": "\uf1eb {essid}",
+                      "format-ethernet": "\uf6ff {ipaddr}",
+                      "format-disconnected": "\u26a0 Disconnected",
+                      "tooltip-format": "{ifname}: {ipaddr}"
+                  },
+                  "custom/demod": {
+                      "format": "\uf121 DeMoD LLC",
+                      "tooltip": "Founder: Innovating with VIM and Sierpinski fractals"
+                  },
+                  "custom/hydramesh": {
+                      "format": "{}",
+                      "exec": "${pkgs.hydramesh-pkg}/bin/hydramesh-status",  # Adjust if needed
+                      "return-type": "json",
+                      "interval": 5,
+                      "tooltip": true
+                  },
+                  "tray": {
+                      "icon-size": 16,
+                      "spacing": 10
+                  }
+              }
+            '';
+            environment.etc."waybar/style.css".text = ''
+              * {
+                  border: none;
+                  border-radius: 0;
+                  font-family: "FiraCode Nerd Font", monospace;
+                  font-size: 14px;
+                  min-height: 0;
+              }
+              window#waybar {
+                  background: transparent;
+                  color: #ffffff;
+                  transition: all 0.3s ease;
+              }
+              .modules-center {
+                  background: rgba(10, 10, 10, 0.85);
+                  border-radius: 16px;
+                  padding: 0 20px;
+                  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+                  transition: box-shadow 0.3s ease;
+              }
+              .modules-center:hover {
+                  box-shadow: 0 4px 8px rgba(51,255,51,0.5);
+              }
+              #workspaces button {
+                  padding: 0 12px;
+                  color: #ffffff;
+                  background: transparent;
+              }
+              #workspaces button.active {
+                  background: rgba(51, 255, 51, 0.3);
+                  border-radius: 8px;
+              }
+              #cpu, #memory, #clock, #battery, #network, #custom-demod, #custom-hydramesh, #tray {
+                  padding: 0 12px;
+                  color: #33ff33;
+              }
+              #custom-hydramesh.hydramesh-active {
+                  color: #33ff33;
+              }
+              #custom-hydramesh.hydramesh-inactive {
+                  color: #ff3333;
+              }
+              #tray {
+                  background: transparent;
+              }
+            '';
+            environment.etc."wofi/style.css".text = ''
+              window {
+                  margin: 0px;
+                  border: 2px solid #33ff33;
+                  background-color: rgba(10, 10, 10, 0.85);
+                  border-radius: 12px;
+                  font-family: "FiraCode Nerd Font", monospace;
+                  font-size: 14px;
+              }
+              #input {
+                  margin: 5px;
+                  border: none;
+                  color: #ffffff;
+                  background-color: rgba(51, 255, 51, 0.1);
+              }
+              #inner-box {
+                  margin: 5px;
+                  border: none;
+                  background-color: transparent;
+              }
+              #outer-box {
+                  margin: 5px;
+                  border: none;
+                  background-color: transparent;
+              }
+              #scroll {
+                  margin: 0px;
+                  border: none;
+              }
+              #text {
+                  margin: 5px;
+                  border: none;
+                  color: #33ff33;
+              }
+              #entry:selected {
+                  background-color: rgba(51, 255, 51, 0.3);
+                  border-radius: 8px;
+                  border: none;
+              }
+            '';
+            environment.etc."hypr/lid.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                hyprctl keyword monitor ",disable"
+                if [[ $1 == "open" ]]; then
+                  hyprctl keyword monitor ",preferred,auto,1"
+                fi
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/toggle_clamshell.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                INTERNAL=""
+                EXTERNAL=""
+                if hyprctl monitors | grep -q "$EXTERNAL"; then
+                  if hyprctl monitors | grep -q "$INTERNAL" && ! hyprctl monitors | grep -q "$INTERNAL.*(disabled)"; then
+                    hyprctl keyword monitor "$INTERNAL,disable"
+                    notify-send "Clamshell Mode" "Internal screen disabled"
+                  else
+                    hyprctl keyword monitor "$INTERNAL,preferred,auto,1"
+                    notify-send "Clamshell Mode" "Internal screen enabled"
+                  fi
+                else
+                  notify-send "Clamshell Mode" "No external monitor connected"
+                fi
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/toggle_resolution.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                set -e
+                CURRENT=$(hyprctl monitors | grep -oP ',\K[^,]+' | head -1)
+                case "$CURRENT" in
+                  "800x600@60") hyprctl keyword monitor ",1280x720@165,auto,1"; notify-send "Resolution" "Set to 1280x720@165";;
+                  "1280x720@165") hyprctl keyword monitor ",1920x1080@165,auto,1"; notify-send "Resolution" "Set to 1920x1080@165";;
+                  "1920x1080@165") hyprctl keyword monitor ",2560x1600@165,auto,1"; notify-send "Resolution" "Set to 2560x1600@165";;
+                  *) hyprctl keyword monitor ",800x600@60,auto,1"; notify-send "Resolution" "Set to 800x600@60";;
+                esac
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/hyprland_config_modifier.py" = {
+              text = ''
+                #!/usr/bin/env python3
+                import os
+                import subprocess
+                from pathlib import Path
+
+                CONFIG_PATH = Path.home() / ".config/hypr/hyprland.conf"
+                WALLPAPER_PATH = Path.home() / "Pictures/wall.jpg"
+
+                def update_wallpaper(new_wallpaper):
+                    hyprpaper_conf = Path.home() / ".config/hypr/hyprpaper.conf"
+                    if not hyprpaper_conf.exists():
+                        print("Error: hyprpaper.conf not found")
+                        return
+                    with open(hyprpaper_conf, "r") as f:
+                        lines = f.readlines()
+                    with open(hyprpaper_conf, "w") as f:
+                        for line in lines:
+                            if line.startswith("wallpaper ="):
+                                f.write(f"wallpaper = ,{new_wallpaper}\n")
+                            elif line.startswith("preload ="):
+                                f.write(f"preload = {new_wallpaper}\n")
+                            else:
+                                f.write(line)
+                    subprocess.run(["pkill", "hyprpaper"], check=False)
+                    subprocess.run(["hyprpaper"], check=False)
+                    print(f"Wallpaper updated to {new_wallpaper}")
+
+                def add_keybinding(key, command):
+                    if not CONFIG_PATH.exists():
+                        print("Error: hyprland.conf not found")
+                        return
+                    with open(CONFIG_PATH, "r") as f:
+                        lines = f.readlines()
+                    with open(CONFIG_PATH, "w") as f:
+                        key_exists = False
+                        for line in lines:
+                            if line.startswith(f"bind={key},"):
+                                f.write(f"bind={key},exec,{command}\n")
+                                key_exists = True
+                            else:
+                                f.write(line)
+                            if not key_exists:
+                                f.write(f"bind={key},exec,{command}\n")
+                        print(f"Added/updated keybinding: {key} -> {command}")
+
+                def main():
+                    print("Hyprland Config Modifier")
+                    choice = input("1. Change wallpaper\n2. Add keybinding\nChoose (1/2): ")
+                    if choice == "1":
+                        if WALLPAPER_PATH.exists():
+                            update_wallpaper(str(WALLPAPER_PATH))
+                        else:
+                            new_wallpaper = input("Enter full path to new wallpaper: ")
+                            if Path(new_wallpaper).exists():
+                                update_wallpaper(new_wallpaper)
+                            else:
+                                print("Error: Wallpaper file does not exist")
+                    elif choice == "2":
+                        key = input("Enter keybinding (e.g., SUPER SHIFT,T): ")
+                        command = input("Enter command to bind: ")
+                        add_keybinding(key, command)
+                    else:
+                        print("Invalid choice")
+
+                if __name__ == "__main__":
+                    main()
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/theme_changer.py" = {
+              text = ''
+                #!/usr/bin/env python3
+                import os
+                import re
+                import subprocess
+                from pathlib import Path
+
+                def hex_to_rgb(hex_str):
+                    hex_str = hex_str.lstrip('#')
+                    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+
+                def rgb_to_hex(r, g, b):
+                    return f'#{r:02x}{g:02x}{b:02x}'
+
+                def replace_colors(content, old_primary, new_primary, old_secondary, new_secondary):
+                    content = content.replace(old_primary, new_primary)
+                    content = content.replace(old_secondary, new_secondary)
+                    content = content.replace(f'rgba({old_primary[1:]}aa)', f'rgba({new_primary[1:]}aa)')
+                    content = content.replace(f'rgba({old_secondary[1:]}aa)', f'rgba({new_secondary[1:]}aa)')
+                    old_p_rgb = hex_to_rgb(old_primary)
+                    new_p_rgb = hex_to_rgb(new_primary)
+                    old_s_rgb = hex_to_rgb(old_secondary)
+                    new_s_rgb = hex_to_rgb(new_secondary)
+                    def repl(match):
+                        r, g, b, a = int(match.group(1)), int(match.group(2)), int(match.group(3)), match.group(4)
+                        if (r, g, b) == old_p_rgb:
+                            nr, ng, nb = new_p_rgb
+                            return f'rgba({nr},{ng},{nb},{a})'
+                        if (r, g, b) == old_s_rgb:
+                            nr, ng, nb = new_s_rgb
+                            return f'rgba({nr},{ng},{nb},{a})'
+                        return match.group(0)
+                    content = re.sub(r'rgba\((\d+),(\d+),(\d+),(\d+\.?\d*)\)', repl, content)
+                    return content
+
+                def main():
+                    themes = {
+                        'green': {'primary': '#33ff33', 'secondary': '#00ff00'},
+                        'blue': {'primary': '#3333ff', 'secondary': '#0000ff'},
+                        'red': {'primary': '#ff3333', 'secondary': '#ff0000'},
+                        'purple': {'primary': '#ff33ff', 'secondary': '#ff00ff'},
+                        'nord': {'primary': '#81a1c1', 'secondary': '#a3be8c'},
+                        'dracula': {'primary': '#bd93f9', 'secondary': '#50fa7b'},
+                        'gruvbox': {'primary': '#fabd2f', 'secondary': '#b8bb26'},
+                        'solarized': {'primary': '#268bd2', 'secondary': '#859900'},
+                        'catppuccin': {'primary': '#cba6f7', 'secondary': '#a6e3a1'},
+                        'tokyonight': {'primary': '#7aa2f7', 'secondary': '#9ece6a'},
+                    }
+                    print("Unified Theme Changer for Hyprland, Waybar, Wofi")
+                    print("Available themes: green (default), blue, red, purple, nord, dracula, gruvbox, solarized, catppuccin, tokyonight, custom")
+                    choice = input("Enter theme name: ").lower()
+                    if choice == 'custom':
+                        primary = input("Enter primary hex (e.g., #33ff33): ")
+                        secondary = input("Enter secondary hex (e.g., #00ff00): ")
+                    elif choice in themes:
+                        primary = themes[choice]['primary']
+                        secondary = themes[choice]['secondary']
+                    else:
+                        print("Invalid theme. Using green.")
+                        primary = themes['green']['primary']
+                        secondary = themes['green']['secondary']
+                    old_primary = '#33ff33'
+                    old_secondary = '#00ff00'
+                    files = [
+                        Path.home() / ".config/hypr/hyprland.conf",
+                        Path.home() / ".config/waybar/style.css",
+                        Path.home() / ".config/wofi/style.css",
+                    ]
+                    for file_path in files:
+                        if file_path.exists():
+                            content = file_path.read_text()
+                            new_content = replace_colors(content, old_primary, primary, old_secondary, secondary)
+                            file_path.write_text(new_content)
+                            print(f"Updated {file_path}")
+                    subprocess.run(["hyprctl", "reload"], check=False)
+                    subprocess.run(["pkill", "waybar"], check=False)
+                    subprocess.run(["waybar"], check=False)
+                    print("Theme applied. Wofi changes apply on next launch.")
+                if __name__ == "__main__":
+                    main()
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/webapp_to_wofi.py" = {
+              text = ''
+                #!/usr/bin/env python3
+                import os
+                from pathlib import Path
+
+                def main():
+                    print("Web App to Wofi")
+                    app_name = input("Enter web app name (e.g., Notion): ")
+                    if not app_name:
+                        print("Error: App name cannot be empty")
+                        return
+                    url = input("Enter URL (e.g., https://notion.so): ")
+                    if not url.startswith(('http://', 'https://')):
+                        print("Error: URL must start with http:// or https://")
+                        return
+                    icon_path = input("Enter icon path (leave blank for default browser icon): ")
+                    if icon_path and not Path(icon_path).exists():
+                        print("Error: Icon file does not exist")
+                        return
+                    print("Select browser: 1. Firefox, 2. Brave, 3. Default (xdg-open)")
+                    browser_choice = input("Enter choice (1-3): ")
+                    if browser_choice == "1":
+                        browser = "firefox"
+                    elif browser_choice == "2":
+                        browser = "brave"
+                    else:
+                        browser = "xdg-open"
+                    desktop_file = Path.home() / f".local/share/applications/webapp-{app_name.lower().replace(' ', '-')}.desktop"
+                    desktop_content = f"""
+                [Desktop Entry]
+                Name={app_name}
+                Exec={browser} {url}
+                Type=Application
+                Terminal=false
+                Categories=Network;WebBrowser;
+                """
+                    if icon_path:
+                        desktop_content += f"Icon={icon_path}\n"
+                    desktop_file.write_text(desktop_content.strip())
+                    print(f"Created {desktop_file} for Wofi")
+                    print(f"Launch via Wofi (SUPER+D) by searching '{app_name}'")
+
+                if __name__ == "__main__":
+                    main()
+              '';
+              mode = "0755";
+            };
+            environment.etc."hypr/keybindings_cheatsheet.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                zenity --info --title="Hyprland Keybindings Cheat Sheet" --text="SUPER + Q: Open Terminal\nSUPER + E: Open File Manager\nSUPER + D: Open Wofi Launcher\nSUPER + SHIFT + W: Toggle Resolution\nSUPER + SHIFT + P: Hyprland Config Modifier\nSUPER + SHIFT + T: Theme Changer\nSUPER + SHIFT + A: Add Web App to Wofi\nSUPER + SHIFT + H: Toggle HydraMesh Service\nSUPER + SHIFT + E: HydraMesh Config Editor\nSUPER + SHIFT + K: Show this Cheat Sheet\nSUPER + 1-0: Switch Workspaces\nSUPER + SHIFT + 1-0: Move Window to Workspace\nSUPER + PRINT: Screenshot Desktop\nSUPER + SHIFT + PRINT: Screenshot Region\nAnd more - check ~/.config/hypr/hyprland.conf for full list."
+              '';
+              mode = "0755";
+            };
+            environment.etc."applications/toggle_resolution.desktop".text = ''
+              [Desktop Entry]
+              Name=Toggle Resolution
+              Exec=toggle_resolution
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/hyprland_config_modifier.desktop".text = ''
+              [Desktop Entry]
+              Name=Hyprland Config Modifier
+              Exec=hyprland_config_modifier
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/theme_changer.desktop".text = ''
+              [Desktop Entry]
+              Name=Theme Changer
+              Exec=theme_changer
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/webapp_to_wofi.desktop".text = ''
+              [Desktop Entry]
+              Name=Add Web App to Wofi
+              Exec=webapp_to_wofi
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/hydramesh_toggle.desktop".text = ''
+              [Desktop Entry]
+              Name=Toggle HydraMesh Service
+              Exec=hydramesh-toggle
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/hydramesh_config_editor.desktop".text = ''
+              [Desktop Entry]
+              Name=HydraMesh Config Editor
+              Exec=hydramesh-config-editor
+              Type=Application
+              Terminal=true
+            '';
+            environment.etc."applications/keybindings_cheatsheet.desktop".text = ''
+              [Desktop Entry]
+              Name=Keybindings Cheat Sheet
+              Exec=keybindings-cheatsheet
+              Type=Application
+              Terminal=false
+            '';
+
+            # Installer script (adapted, no LUKS, hardware agnostic)
+            environment.etc."installer.sh" = {
+              text = ''
+                #!/usr/bin/env bash
+                set -e
+                cat <<'EOF'
+   ░███                        ░██        ░██░██                   ░██        ░██   ░██████     ░██████   
+  ░██░██                       ░██           ░██                   ░██        ░██  ░██   ░██   ░██   ░██  
+ ░██  ░██  ░██░████  ░███████  ░████████  ░██░████████   ░██████   ░██  ░████████ ░██     ░██ ░██         
+░█████████ ░███     ░██    ░██ ░██    ░██ ░██░██    ░██       ░██  ░██ ░██    ░██ ░██     ░██  ░████████  
+░██    ░██ ░██      ░██        ░██    ░██ ░██░██    ░██  ░███████  ░██ ░██    ░██ ░██     ░██         ░██ 
+░██    ░██ ░██      ░██    ░██ ░██    ░██ ░██░███   ░██ ░██   ░██  ░██ ░██   ░███  ░██   ░██   ░██   ░██  
+░██    ░██ ░██       ░███████  ░██    ░██ ░██░██░█████   ░█████░██ ░██  ░█████░██   ░██████     ░██████   
+                                                                                                                                                                                                                    
+                                                                                                            
+                                                                                                                                                                                                                              
+                EOF
+                echo "Welcome to ArchibaldOS Audio Installer"
+                KB=$(dialog --menu "Select keyboard layout:" 20 60 12 \
+                  us "US English" \
+                  gb "UK English" \
+                  de "German" \
+                  fr "French" \
+                  es "Spanish" \
+                  it "Italian" \
+                  ru "Russian" \
+                  pl "Polish" \
+                  pt "Portuguese (Portugal)" \
+                  br "Portuguese (Brazil)" \
+                  nl "Dutch" \
+                  se "Swedish" \
+                  no "Norwegian" \
+                  dk "Danish" \
+                  fi "Finnish" \
+                  tr "Turkish" \
+                  cz "Czech" \
+                  hu "Hungarian" \
+                  ro "Romanian" \
+                  ua "Ukrainian" \
+                  jp "Japanese" \
+                  kr "Korean" \
+                  cn "Chinese" \
+                  ca "Canadian" \
+                  au "Australian" \
+                  latam "Latin American" \
+                  in "Indian" \
+                  af "Afghani" \
+                  ara "Arabic" \
+                  al "Albanian" \
+                  am "Armenian" \
+                  az "Azerbaijani" \
+                  by "Belarusian" \
+                  3>&1 1>&2 2>&3)
+                setxkbmap -layout "$KB" || echo "Failed to set keyboard layout; continuing with default."
+                DISKS=$(lsblk -dno NAME,SIZE,TYPE | grep disk | awk '{print "/dev/"$1 " ("$2")"}')
+                DISK=$(dialog --menu "Select disk to wipe and install:" 15 50 5 $DISKS 3>&1 1>&2 2>&3)
+                dialog --yesno "WARNING: This will ERASE ALL DATA on $DISK! Continue?" 7 60 || exit
+                HYDRAMESH=$(dialog --yesno "Enable HydraMesh service?" 7 60 && echo true || echo false)
+                HYDRAMESH_FIREWALL=$(dialog --yesno "Enable firewall for HydraMesh ports?" 7 60 && echo true || echo false)
+                HYDRAMESH_APPARMOR=$(dialog --yesno "Enable AppArmor profile for HydraMesh?" 7 60 && echo true || echo false)
+                LOCALE=$(dialog --inputbox "Enter locale (e.g., en_US.UTF-8):" 8 50 "en_US.UTF-8" 3>&1 1>&2 2>&3)
+                TZ=$(dialog --inputbox "Enter timezone (e.g., America/Los_Angeles):" 8 50 "America/Los_Angeles" 3>&1 1>&2 2>&3)
+                HOSTNAME=$(dialog --inputbox "Enter hostname:" 8 50 "archibaldos" 3>&1 1>&2 2>&3)
+                USERNAME=$(dialog --inputbox "Enter username:" 8 50 "user" 3>&1 1>&2 2>&3)
+                FULLNAME=$(dialog --inputbox "Enter full name:" 8 50 "User" 3>&1 1>&2 2>&3)
+                USERPW=$(dialog --insecure --passwordbox "Enter user password:" 8 50 3>&1 1>&2 2>&3)
+                USERPW_CONFIRM=$(dialog --insecure --passwordbox "Confirm user password:" 8 50 3>&1 1>&2 2>&3)
+                [ "$USERPW" = "$USERPW_CONFIRM" ] || { dialog --msgbox "Passwords mismatch" 7 50; exit 1; }
+                ROOTPW=$(dialog --insecure --passwordbox "Enter root password (optional, leave blank for none):" 8 50 3>&1 1>&2 2>&3)
+                ROOTPW_CONFIRM=$(dialog --insecure --passwordbox "Confirm root password:" 8 50 3>&1 1>&2 2>&3)
+                if [ -n "$ROOTPW" ] && [ "$ROOTPW" != "$ROOTPW_CONFIRM" ]; then dialog --msgbox "Passwords mismatch" 7 50; exit 1; fi
+                cat <<EOF > /tmp/disko.nix
+                { disks ? [ "$DISK" ], lib, ... }: {
+                  disko.devices = {
+                    disk.main = {
+                      type = "disk"; device = lib.head disks; format = "gpt";
+                      content = { type = "gpt"; partitions = {
+                        ESP = { size = "500M"; type = "EF00"; format = "vfat"; mountpoint = "/boot"; };
+                        root = { size = "100%"; format = "ext4"; mountpoint = "/"; };
+                      }; };
+                    };
+                  };
+                }
+                EOF
+                disko --mode format /tmp/disko.nix
+                disko --mode mount /tmp/disko.nix /mnt
+                nixos-generate-config --root /mnt
+                mkdir -p /mnt/etc/hypr
+                mkdir -p /mnt/etc/waybar
+                mkdir -p /mnt/etc/wofi
+                mkdir -p /mnt/etc/applications
+                cp -r /etc/nixos-flake/* /mnt/etc/nixos/ || true  # Copy flake sources if available
+                cp /etc/hypr/* /mnt/etc/hypr/
+                cp /etc/waybar/* /mnt/etc/waybar/
+                cp /etc/wofi/* /mnt/etc/wofi/
+                cp /etc/applications/* /mnt/etc/applications/
+                cd /mnt/etc/nixos
+                # Assume configuration.nix exists; adjust sed as needed for your base config
+                sed -i "s|time.timeZone = \"America/Los_Angeles\";|time.timeZone = \"$TZ\";|g" configuration.nix || true
+                sed -i "s|en_US.UTF-8|$LOCALE|g" configuration.nix || true
+                if ! grep -q "services.xserver.layout" configuration.nix; then
+                  sed -i "/services.xserver.enable = true;/a\    layout = \"$KB\";" configuration.nix || true
+                fi
+                sed -i "s|networking.hostName = \"nixos\";|networking.hostName = \"$HOSTNAME\";|g" configuration.nix || true
+                if [ "$HYDRAMESH" = "true" ]; then
+                  echo "services.hydramesh.enable = true;" >> configuration.nix
+                  echo "services.hydramesh.firewallEnable = $HYDRAMESH_FIREWALL;" >> configuration.nix
+                  echo "services.hydramesh.apparmorEnable = $HYDRAMESH_APPARMOR;" >> configuration.nix
+                fi
+                sed -i '/users.users.audio-user = {/,/};/d' configuration.nix || true
+                sed -i '/systemd.user.services.quicklisp-install = {/i users.users.'"$USERNAME"' = {\n      isNormalUser = true;\n      description = "'"$FULLNAME"'";\n      extraGroups = [ "networkmanager" "wheel" "docker" "wireshark" "disk" "audio" "jackaudio" "video" ];\n      shell = pkgs.bash;\n      initialHashedPassword = "'$(mkpasswd -m sha-512 "$USERPW")'";\n      packages = with pkgs; [\n        (writeShellScriptBin "toggle_resolution" "'\''\n          ~/.config/hypr/toggle_resolution.sh\n        '\'\'')\n        (writeShellScriptBin "hyprland_config_modifier" "'\''\n          ${pkgs.python3}/bin/python ~/.config/hypr/hyprland_config_modifier.py\n        '\'\'')\n        (writeShellScriptBin "theme_changer" "'\''\n          ${pkgs.python3}/bin/python ~/.config/hypr/theme_changer.py\n        '\'\'')\n        (writeShellScriptBin "webapp_to_wofi" "'\''\n          ${pkgs.python3}/bin/python ~/.config/hypr/webapp_to_wofi.py\n        '\'\'')\n        (writeShellScriptBin "hydramesh_toggle" "'\''\n          ${pkgs.hydramesh-pkg}/bin/hydramesh-toggle  # Adjust\n        '\'\'')\n        (writeShellScriptBin "hydramesh_config_editor" "'\''\n          ${pkgs.python3}/bin/python ~/.config/hypr/hydramesh_config_editor.py\n        '\'''\n        (writeShellScriptBin "keybindings_cheatsheet" "'\''\n          ~/.config/hypr/keybindings_cheatsheet.sh\n        '\'''\n      ];\n    };\n' configuration.nix || true
+                if [ -n "$ROOTPW" ]; then
+                  echo 'users.users.root.initialHashedPassword = "'$(mkpasswd -m sha-512 "$ROOTPW")'";' >> configuration.nix
+                fi
+                mkdir -p /mnt/home/"$USERNAME"/.config/hypr
+                mkdir -p /mnt/home/"$USERNAME"/.config/waybar
+                mkdir -p /mnt/home/"$USERNAME"/.config/wofi
+                mkdir -p /mnt/home/"$USERNAME"/.local/share/applications
+                cp /etc/hypr/* /mnt/home/"$USERNAME"/.config/hypr/
+                cp /etc/waybar/* /mnt/home/"$USERNAME"/.config/waybar/
+                cp /etc/wofi/* /mnt/home/"$USERNAME"/.config/wofi/
+                cp /etc/applications/* /mnt/home/"$USERNAME"/.local/share/applications/
+                chown -R 1000:100 /mnt/home/"$USERNAME"
+                nixos-install --root /mnt --flake /mnt/etc/nixos#archibaldOS
+                dialog --msgbox "Installation complete. Reboot to start your new system." 7 50
+              '';
+              mode = "0755";
+            };
+
+            # Activation script for live user configs
+            system.activationScripts.setupHyprland = lib.stringAfter [ "users" ] ''
+              mkdir -p /home/nixos/.config/hypr
+              mkdir -p /home/nixos/.config/waybar
+              mkdir -p /home/nixos/.config/wofi
+              mkdir -p /home/nixos/.local/share/applications
+              cp /etc/hypr/* /home/nixos/.config/hypr/
+              cp /etc/waybar/* /home/nixos/.config/waybar/
+              cp /etc/wofi/* /home/nixos/.config/wofi/
+              cp /etc/applications/* /home/nixos/.local/share/applications/
+              chown -R nixos:users /home/nixos
+              chmod +x /home/nixos/.config/hypr/*.sh
+              chmod +x /home/nixos/.config/hypr/*.py
+            '';
+            users.users.nixos = {
+              isNormalUser = true;
+              extraGroups = [ "wheel" "networkmanager" "docker" "wireshark" "disk" "audio" "jackaudio" "video" ];
+              initialPassword = "nixos";
+              shell = pkgs.bash;
+            };
+            security.sudo.wheelNeedsPassword = false;
+
+            environment.etc."nixos-flake".source = self;
+            hardware.opengl.enable = true;
+            isoImage.squashfsCompression = "gzip -Xcompression-level 1";
+            nix.settings.experimental-features = [ "nix-command" "flakes" ];
           })
         ];
       };
     };
 
-    # Dev shell using the separated package list
+    packages.${system}.installer = self.nixosConfigurations.installer.config.system.build.isoImage;
+
     devShells.${system}.default = pkgs.mkShell {
       packages = audioPackages;
     };
