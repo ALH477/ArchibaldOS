@@ -1,177 +1,188 @@
-# ArchibaldOS
+# ArchibaldOS: Lean Real-Time Audio NixOS Distribution
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![NixOS](https://img.shields.io/badge/NixOS-Unstable-blue.svg)](https://nixos.org/)
-[![Hyprland](https://img.shields.io/badge/WM-Hyprland%20%2B%20DWM-green.svg)](https://hyprland.org/)
-[![Real-Time Audio](https://img.shields.io/badge/RT-Audio-orange.svg)](https://musnix.org/)
+**ArchibaldOS** is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design.
 
-**Copyright (c) 2025 DeMoD LLC**
+## Why ArchibaldOS?
 
-**ArchibaldOS** is a minimalist, audio-centric NixOS distribution designed for musicians, sound designers, and real-time audio professionals. Built on the reproducible foundation of NixOS, it prioritizes low-latency audio processing, MIDI integration, and a seamless, customizable desktop experience. Whether you're composing with synthesizers, mixing in a DAW, or experimenting with modular DSP, ArchibaldOS provides a battle-tested environment optimized for performance and creativity.
-
-ArchibaldOS combines the power of the Musnix real-time kernel with a curated selection of FOSS tools for MIDI sequencing, synthesis, and effects processing. It features a Hyprland-based Wayland desktop (with DWM fallback) for fluid, distraction-free workflows, and includes unique integrations like HydraMesh for P2P audio networking and StreamDB for metadata management.
-
-> **Tagline**: *Reproducible Rhythms, Uncompromised Latency.*
+ArchibaldOS is engineered for real-time audio production, offering:
+- **Ultra-Low Latency**: Musnix’s PREEMPT_RT kernel and PipeWire/JACK deliver sub-millisecond audio performance for live recording, synthesis, and performance.
+- **Minimal Footprint**: A curated set of ~18 packages (audio + utilities) minimizes resource usage, ideal for resource-constrained laptops or studio rigs.
+- **Hardware Agnosticism**: Generic configurations ensure compatibility across x86_64 systems, including high-performance laptops like the Framework 16.
+- **Reproducible Builds**: NixOS’s declarative model and flake-based inputs guarantee consistent setups across deployments.
+- **Lightweight Desktop**: Hyprland with Waybar and Wofi provides a fast, Wayland-based interface, leaving CPU/GPU resources for audio tasks.
+- **P2P Audio Networking**: Optional HydraMesh enables low-latency collaborative audio workflows, with StreamDB for sample/metadata management.
+- **Streamlined Installation**: A TUI installer (no Calamares) configures disk, user, and audio settings with minimal overhead.
+- **Basic Utilities**: Includes `pcmanfm` (file manager), `vim` (text editor), and `brave` (browser) for essential tasks like managing samples or accessing online resources.
 
 ## Features
 
-- **Real-Time Audio Kernel**: Powered by Musnix with PREEMPT_RT patches for sub-millisecond latency—ideal for live performance and plugin-heavy sessions.
-- **Curated Audio Toolchain**:
-  - **DAWs**: Ardour, LMMS, Audacity, Mixxx, Zrythm, Stargate.
-  - **MIDI Tools**: MuseScore, FluidSynth.
-  - **DSP & Synthesis**: PortAudio, RtAudio, Faust, JUCE, Csound, SuperCollider, Surge, Dexed, VCV Rack.
-  - **Effects & Modular**: Dragonfly Reverb, Pure Data (Pd).
-  - **Streaming**: OBS Studio.
-- **Desktop Environment**: Hyprland (Wayland) with Waybar status bar, Wofi launcher, and Kitty terminal. DWM available as an X11 alternative. Custom themes, keybindings, and scripts for monitor management, screenshotting, and theme switching.
-- **Custom Integrations**:
-  - **HydraMesh**: P2P mesh networking for collaborative audio sessions (toggle via `Super+Shift+H`).
-  - **StreamDB**: Efficient storage for audio metadata and presets.
-- **Installer**: A TUI-based live ISO (no Calamares) with Disko partitioning, auto-configured for hardware-agnostic setups (GPT/ext4, no LUKS).
-- **Reproducibility**: Fully declarative via Nix flakes—build once, deploy anywhere.
-- **Hardware Agnostic**: Works on x86_64 (with ARM64 support in progress); optimized for PipeWire/JACK/ALSA.
+- **Real-Time Audio**:
+  - Musnix with `PREEMPT_RT` kernel (`linuxPackages_latest_rt`) for sub-millisecond latency.
+  - PipeWire with ALSA, PulseAudio, and JACK support for professional audio workflows.
+  - `rtirq` prioritizes audio interrupts; `alsaSeq` enables MIDI sequencing.
+- **Minimal Desktop**:
+  - Hyprland Wayland compositor with essential keybindings (`SUPER+Q` for terminal, `SUPER+D` for launcher, `XF86Audio*` for volume).
+  - Waybar displays CPU, memory, network, and HydraMesh status; Wofi launches audio tools.
+- **Audio Tools**:
+  - DAWs: Ardour (multitrack), Audacity (editing), MuseScore (MIDI notation), FluidSynth (soundfont synthesis).
+  - DSP: CSound, FAUST, PortAudio, RtAudio, SuperCollider for synthesis and processing.
+  - Synths/Modular: Surge, VCV Rack, Pure Data (Pd) for creative sound design.
+- **P2P and Metadata**:
+  - Optional HydraMesh for P2P audio networking (toggle via `SUPER+SHIFT+H`).
+  - StreamDB for audio metadata/sample storage, integrated as a CLI/library.
+- **TUI Installer**: Configures disk (GPT/ext4, no LUKS), locale, timezone, user, and HydraMesh in a minimal TUI.
+- **Utilities**: `pcmanfm` for file management, `vim` for config editing, `brave` for online resources.
+- **Customization**: Keybindings cheatsheet (`SUPER+SHIFT+K`) and wallpaper (`wall.jpg`) for a tailored UX.
 
-## Quick Start
+## Security
 
-### Prerequisites
-- A compatible x86_64 machine with at least 4GB RAM and 20GB free disk space.
-- Internet access for initial flake locking and builds.
-- Enable Nix flakes: Add `experimental-features = nix-command flakes` to `~/.config/nix/nix.conf`.
+ArchibaldOS prioritizes security for its networked audio components, particularly HydraMesh, following best practices (e.g., NIST SP 800-53, CIS Controls):
+- **Systemd Hardening**:
+  - HydraMesh runs as a `hydramesh` user with `DynamicUser=true`, isolating it from system processes.
+  - Restrictions: `PrivateDevices=true`, `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`, `NoNewPrivileges=true`, `CapabilityBoundingSet=""`, `RestrictNamespaces=true`, `SystemCallFilter=@system-service ~@privileged`.
+  - **Value**: Sandboxes P2P audio networking, preventing escalation or system access.
+- **File Permissions**:
+  - `/etc/hydramesh/` (configs, 640) and `/var/lib/hydramesh/` (data, 755) owned by `hydramesh` user.
+  - **Value**: Enforces least privilege for audio metadata and configs.
+- **System-Wide**:
+  - Default firewall (`networking.firewall.enable = true`) protects the system.
+  - User passwords hashed with `mkpasswd -m sha-512`.
+  - **Value**: Secures the broader system without LUKS overhead.
 
-### Building the Installer ISO
-1. Clone the repository:
+## Who It’s For
+
+- **Musicians/Producers**: Multitrack recording (Ardour), MIDI sequencing (MuseScore), and live mixing with low-latency JACK.
+- **Sound Designers/DSP Engineers**: Modular synthesis (VCV Rack, Pd), algorithmic composition (SuperCollider), and DSP programming (FAUST).
+- **Live Performers**: Real-time synths (Surge) and P2P jamming (HydraMesh) for low-latency workflows.
+- **Hobbyists/Educators**: Learn MIDI/DSP with FluidSynth and CSound; manage samples with StreamDB and `pcmanfm`.
+
+## Prerequisites
+
+- **System**: Nix/NixOS environment for building; x86_64 hardware (e.g., Framework 16 or similar).
+- **USB Drive**: 8GB+ for flashing the ISO.
+- **Files**:
+  - `flake.nix`: Defines configurations.
+  - `../wallpaper.jpg`: Default wallpaper for Hyprland/SDDM.
+  - `../HydraMesh/`: Flake with P2P audio networking (e.g., Go-based `hydramesh` binary).
+  - `../StreamDB/`: Flake with audio metadata storage (e.g., Rust-based `streamdb`).
+- **Tools**: `nix`, `git`, `dd` for building/flashing; internet for dependencies (or cached `/nix/store`).
+- **Permissions**: Root access for flashing and installation.
+
+## Installation
+
+1. **Clone Repository**:
+   ```bash
+   git clone https://github.com/<your-org>/ArchibaldOS
+   cd ArchibaldOS
    ```
-   git clone https://github.com/yourusername/archibaldos.git
-   cd archibaldos
+
+2. **Compute Hashes**:
+   ```bash
+   nix build .#hydramesh-pkg  # Update vendorHash in flake.nix
+   nix build .#streamdb-pkg   # Update cargoHash in flake.nix
    ```
-2. Lock dependencies:
-   ```
-   nix flake lock
-   ```
-3. Build the live ISO:
-   ```
+
+3. **Build ISO**:
+   ```bash
    nix build .#installer
    ```
-   The ISO will be at `./result/iso/ArchibaldOS-audio-unstable-x86_64-linux.iso`.
 
-### Installation
-1. Boot from the ISO (USB or VM).
-2. Log in automatically as `nixos` (password: `nixos`) in Hyprland.
-3. Open a terminal (`Super+Q`) and run:
+4. **Flash USB**:
+   Identify USB device with `lsblk` (e.g., `/dev/sdX`).
+   ```bash
+   sudo dd if=result/iso/archibaldOS-rt-audio-*.iso of=/dev/sdX bs=4M status=progress
+   sync
    ```
-   sudo /etc/installer.sh
+
+5. **Boot and Install**:
+   - Boot USB (set BIOS/UEFI to prioritize USB).
+   - Auto-logs in as `nixos` (password: `nixos`) with Hyprland.
+   - Run `sudo /etc/installer.sh` in Kitty (`SUPER+Q`).
+   - Follow TUI prompts:
+     - **Keyboard**: Select layout (e.g., `us`, `de`).
+     - **Disk**: Choose disk to wipe (warning: erases all data).
+     - **HydraMesh**: Enable/disable P2P audio networking.
+     - **Locale/Timezone**: Set (e.g., `en_US.UTF-8`, `America/Los_Angeles`).
+     - **Hostname/Username**: Configure (defaults: `archibaldos`, `audio-user`).
+     - **Password**: Set user password.
+   - Installer formats disk (GPT/ext4), configures system, and installs.
+   - Reboot into the new system.
+
+6. **Test in QEMU** (optional):
+   ```bash
+   qemu-system-x86_64 -cdrom result/iso/*.iso -m 4G -enable-kvm -cpu host
    ```
-4. Follow the TUI prompts:
-   - Select keyboard layout.
-   - Choose the target disk (warning: erases data!).
-   - Configure HydraMesh options (enable/disable, firewall/AppArmor).
-   - Set locale, timezone, hostname, username, and passwords.
-5. Reboot into your new system.
-
-Post-install, log in via SDDM (select Hyprland or DWM). Use `Super+Shift+K` for a keybindings cheatsheet.
-
-## Detailed Installation Guide
-
-### From Source
-If building from source:
-- Ensure `../HydraMesh` and `../StreamDB` are sibling directories (flakes or sources).
-- Place your wallpaper at `../wallpaper.jpg` (copied as `wall.jpg` in `~/Pictures`).
-- Compute hashes for HydraMesh/StreamDB overlays via trial `nix build` (update `vendorHash`/`cargoHash`).
-
-### Hardware Requirements
-- **CPU**: Modern x86_64 (Intel/AMD); ARM64 experimental.
-- **Storage**: 20GB+ SSD/HDD.
-- **Audio**: ALSA-compatible interface recommended for RT performance.
-- **Graphics**: Wayland-compatible GPU (Intel/AMD/NVIDIA with proprietary drivers if needed).
-
-### Customizing the Installer
-Edit `/etc/installer.sh` in the live environment before running:
-- Add partitions via Disko config (`/tmp/disko.nix`).
-- Extend prompts for additional options (e.g., Steam integration).
-
-## System Overview
-
-### Audio Stack
-- **Kernel**: Linux RT (via Musnix) with `threadirqs` for prioritized audio IRQs.
-- **Server**: PipeWire (ALSA/Pulse/JACK) for unified routing.
-- **Tools**: See [Features](#features) for the full list. All configured for low-latency via `rtkit`.
-
-### Desktop Experience
-- **Hyprland Config**: `~/.config/hypr/hyprland.conf` includes:
-  - Animations, bezier curves, and dwindle layout for smooth interactions.
-  - Keybindings: Workspaces (`Super+1-0`), focus movement (`Super+H/L/K/J`), audio controls (`XF86Audio*`).
-  - Scripts: Resolution toggle (`Super+Shift+W`), theme changer (`Super+Shift+T`), web app launcher (`Super+Shift+A`).
-- **Waybar**: Custom bar with audio/network/HydraMesh status.
-- **Wallpaper**: Set via Hyprpaper; supports multi-monitor.
-
-### HydraMesh & StreamDB
-- **HydraMesh**: Starts as a systemd service. Edit `/etc/hydramesh/config.toml`. Toggle with `hydramesh-toggle`.
-- **StreamDB**: CLI tool; integrate with DAWs via scripts (e.g., preset export).
 
 ## Usage
 
-### Daily Workflow
-1. Boot and select Hyprland/SDDM.
-2. Launch DAW (e.g., Ardour via menu or `Super+D`).
-3. Connect MIDI devices (auto-detected via ALSA).
-4. Monitor latency with `rtcqs` in terminal.
-5. Collaborate: Enable HydraMesh for P2P session sharing.
-
-### Key Shortcuts
-- `Super+Q`: Terminal (Kitty).
-- `Super+D`: Launcher (Wofi).
-- `Super+E`: File Manager (Dolphin).
-- `Super+Shift+PRINT`: Region screenshot.
-- Full list: `Super+Shift+K`.
-
-### Audio Testing
-Run `jackd -R` for JACK server, then test with `aplay /usr/share/sounds/alsa/Front_Center.wav`.
-
-## Customization
-
-- **Packages**: Add to `audioPackages` in `flake.nix` and rebuild.
-- **Hyprland**: Edit `~/.config/hypr/hyprland.conf` and reload (`hyprctl reload`).
-- **Themes**: Use `theme_changer.py` for color schemes (green default).
-- **HydraMesh**: Customize service in `systemd.services.hydramesh`.
-- **Flake Overrides**: Pin inputs or add overlays for new tools.
-
-For advanced tweaks, see [NixOS Manual](https://nixos.org/manual/nixos/stable/).
+- **Desktop**:
+  - Hyprland with Waybar (CPU, memory, network, HydraMesh status) and Wofi (`SUPER+D`).
+  - Keybindings: `SUPER+Q` (Kitty), `SUPER+1-5` (workspaces), `XF86Audio*` (volume), `SUPER+SHIFT+H` (HydraMesh toggle), `SUPER+SHIFT+K` (cheatsheet).
+- **Audio Workflow**:
+  - Launch Ardour/VCV Rack via Wofi or terminal.
+  - Test latency with `qjackctl` (available via `nix-shell` if needed).
+  - Use `pcmanfm` to manage samples, `vim` for MIDI scripts, `brave` for online libraries.
+- **HydraMesh**:
+  - Enable in `/etc/nixos/configuration.nix`:
+    ```nix
+    systemd.services.hydramesh.enable = true;
+    ```
+  - Configure `/etc/hydramesh/config.toml` (e.g., `port`, `peers`, `plugins={audio=true}`).
+  - Toggle: `SUPER+SHIFT+H` or `hydramesh-toggle`.
+- **StreamDB**: Use as CLI/library for sample organization (e.g., `/var/lib/hydramesh/streamdb`).
 
 ## Troubleshooting
 
-- **High Latency**: Run `rtcqs` to diagnose; ensure `musnix.rtirq.enable = true`.
-- **Hyprland Crashes**: Fallback to DWM; check logs with `journalctl -u sddm`.
-- **MIDI Issues**: Verify `musnix.alsaSeq.enable = true`; test with `aconnect -l`.
-- **Build Errors**: Update hashes for HydraMesh/StreamDB; use `nix flake check`.
-- **ISO Boot Failure**: Verify USB with `dd` or Rufus; test in QEMU.
-
-Report issues on GitHub with `nix log` output.
+- **Build Failures**:
+  - Update `vendorHash`/`cargoHash` with `nix build .#hydramesh-pkg` or `.#streamdb-pkg`.
+  - Ensure `../HydraMesh` and `../StreamDB` are valid flakes.
+- **Audio Latency**:
+  - Verify RT kernel: `uname -r` (should include `rt`).
+  - Check JACK settings: `nix-shell -p qjackctl --run qjackctl`.
+- **HydraMesh**:
+  - Logs: `journalctl -u hydramesh`.
+  - Validate `/etc/hydramesh/config.toml`.
+- **General**:
+  - NixOS Wiki: https://nixos.wiki
+  - GitHub Issues: https://github.com/<your-org>/ArchibaldOS
+  - Logs: `journalctl -u nix-daemon`
 
 ## Contributing
 
-Contributions are welcome! Focus areas:
-- New audio tools (PR to `audioPackages`).
-- HydraMesh/StreamDB enhancements.
-- ARM64 porting.
-- Bug fixes for RT audio.
-
-1. Fork and clone.
-2. Create a feature branch (`git checkout -b feature/audio-tool`).
-3. Commit (`git commit -m "Add new synth package"`).
-4. Push and PR.
-
-Follow [Nixpkgs style guide](https://nixos.org/manual/nixpkgs/stable/#chap-contributing). Code of Conduct: [Contributor Covenant](https://www.contributor-covenant.org/version/2/0/code_of_conduct/).
+1. Fork: https://github.com/<your-org>/ArchibaldOS
+2. Test changes: `nixos-rebuild dry-run` or QEMU.
+3. Submit PRs or issues on GitHub.
+4. Ensure compatibility with NixOS unstable and RT audio use cases.
 
 ## License
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+MIT License:
 
-## Acknowledgments
+```
+Copyright (c) 2025 ArchibaldOS Contributors
 
-- [NixOS](https://nixos.org/) for the declarative foundation.
-- [Musnix](https://musnix.org/) for RT audio expertise.
-- [Hyprland](https://hyprland.org/) for the dynamic WM.
-- Community contributors to HydraMesh and StreamDB.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
----
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-*Built with ❤️ for audio creators. Last updated: October 27, 2025.*
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+**Note**: HydraMesh and StreamDB may have separate licenses (e.g., LGPL-3.0). See `../HydraMesh/LICENSE` and `../StreamDB/LICENSE`.
+
+## Notes
+
+- **Dependencies**: Ensure `../wallpaper.jpg`, `../HydraMesh`, `../StreamDB` exist before building.
+- **ARM64**: Set `system = "aarch64-linux"` in `flake.nix` and verify Hyprland/Musnix compatibility.
