@@ -5,13 +5,12 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     musnix.url = "github:musnix/musnix";
     hyprland.url = "github:hyprwm/Hyprland";
-    hydramesh.url = "path:../HydraMesh";  # Assumed flake in sibling dir
-    streamdb.url = "path:../StreamDB";    # Assumed Rust crate flake
+    hydramesh.url = "path:../HydraMesh";  # Imported as a flake
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, musnix, hyprland, hydramesh, streamdb, disko }: let
+  outputs = { self, nixpkgs, musnix, hyprland, hydramesh, disko }: let
     system = "x86_64-linux";  # x86_64 focus
     pkgs = import nixpkgs {
       inherit system;
@@ -19,34 +18,17 @@
       overlays = [
         (final: prev: rec {
           hyprland = hyprland.packages.${system}.hyprland;
-          hydramesh-pkg = hydramesh.packages.${system}.default or (pkgs.buildGoModule rec {
-            pname = "hydramesh";
-            version = "0.1.0";
-            src = hydramesh;
-            vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # Compute with `nix build`
-            meta = with pkgs.lib; { description = "P2P mesh for audio"; license = licenses.mit; };
-          });
-          streamdb-pkg = streamdb.packages.${system}.streamdb or (pkgs.rustPlatform.buildRustPackage rec {
-            pname = "streamdb";
-            version = "0.1.0";
-            src = streamdb;
-            cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # Compute with `nix build`
-            meta = with pkgs.lib; { description = "StreamDB for audio metadata"; license = licenses.mit; };
-          });
+          hydramesh-pkg = hydramesh.packages.${system}.hydramesh;  # Use HydraMesh flake's package
+          streamdb-pkg = hydramesh.packages.${system}.streamdb;  # StreamDB from HydraMesh flake
         })
       ];
     };
 
     # Lean audio package list: Core RT audio essentials only
     audioPackages = with pkgs; [
-      # DAWs/MIDI
-      ardour audacity fluidsynth musescore
-
-      # DSP/Tools
-      csound faust portaudio rtaudio supercollider qjackctl guitarix
-
-      # Synths/Modular
-      surge vcvrack pd
+      ardour audacity fluidsynth musescore  # DAWs/MIDI
+      csound faust portaudio rtaudio supercollider qjackctl  # DSP/Tools
+      surge vcvrack pd  # Synths/Modular
     ];
 
     # Basic software additions: Minimal file manager, text editor, browser
@@ -57,6 +39,12 @@
     ];
 
     wallpaperSrc = ../wallpaper.jpg;
+
+    # Import HydraMesh's SBCL with packages
+    sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
+      cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
+      cl-lorawan cl-lsquic cl-can cl-sctp cl-zigbee
+    ]);
   in {
     nixosConfigurations = {
       archibaldOS = nixpkgs.lib.nixosSystem {
@@ -64,7 +52,7 @@
         modules = [
           musnix.nixosModules.musnix
           hyprland.nixosModules.default
-          ({ config, pkgs, ... }: {
+          ({ config, pkgs, lib, ... }: {
             # Optimized Musnix RT setup: Full low-latency audio optimizations
             musnix.enable = true;
             musnix.kernel.realtime = true;
@@ -109,7 +97,7 @@
             };
 
             # Optimized kernel params and sysctl for RT audio
-            boot.kernelParams = [ "threadirqs" "isolcpus=1-3" "nohz_full=1-3" "intel_idle.max_cstate=1" "processor.max_cstate=1" ];  # Disable CPU C-states
+            boot.kernelParams = [ "threadirqs" "isolcpus=1-3" "nohz_full=1-3" "intel_idle.max_cstate=1" "processor.max_cstate=1" ];
             boot.kernel.sysctl = {
               "vm.swappiness" = 0;  # Disable swap for RT
               "fs.inotify.max_user_watches" = 600000;
@@ -118,7 +106,7 @@
               dev.rtc.max-user-freq = 2048
               dev.hpet.max-user-freq = 2048
             '';
-            powerManagement.cpuFreqGovernor = "performance";  # Consistent RT performance
+            powerManagement.cpuFreqGovernor = "performance";
 
             # ALSA configuration for low-latency
             environment.etc."asound.conf".text = ''
@@ -149,7 +137,7 @@
             boot.extraModprobeConfig = ''
               options snd_usb_audio nrpacks=1 low_latency=1
             '';
-            environment.systemPackages = audioPackages ++ basicPackages ++ [ pkgs.usbutils pkgs.libusb pkgs.alsa-firmware pkgs.alsa-tools ];  # USB and audio firmware/tools
+            environment.systemPackages = audioPackages ++ basicPackages ++ [ pkgs.usbutils pkgs.libusb pkgs.alsa-firmware pkgs.alsa-tools sbclWithPkgs hydramesh.packages.${system}.toggleScript hydramesh.packages.${system}.statusScript hydramesh.packages.${system}.streamdb ];
 
             services.xserver.enable = true;
             services.displayManager.sddm.enable = true;
@@ -216,7 +204,7 @@
               bind = $mainMod, 3, workspace, 3
               bind = $mainMod, 4, workspace, 4
               bind = $mainMod, 5, workspace, 5
-              bind = $mainMod, P, exec, hyprctl keyword decoration:blur:enabled 0  # Disable blur for audio
+              bind = $mainMod, P, exec, hyprctl keyword decoration:blur:enabled 0
               bindel = ,XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
               bindel = ,XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
               bindel = ,XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
@@ -315,6 +303,8 @@
               '';
               mode = "0755";
             };
+
+            # Embed post-install audio setup script
             environment.etc."audio-setup.sh" = {
               text = ''
 #!/usr/bin/env bash
@@ -516,6 +506,13 @@ else
   fi
 fi
 
+# HydraMesh configuration check
+if [ -f "/etc/hydramesh/config.json" ]; then
+  echo "HydraMesh config found at /etc/hydramesh/config.json. Ensure 'peers' and 'port' are set for P2P."
+else
+  echo "Warning: /etc/hydramesh/config.json not found. Create with 'transport', 'host', 'port', 'mode'."
+fi
+
 # Final verification
 echo "Current kernel: $(uname -r)"
 echo "Setup complete! Reboot if needed. Log saved to $LOG_FILE."
@@ -524,26 +521,95 @@ echo "Persist specialisations: specialisation.lts-backup.configuration = { boot.
               mode = "0755";
             };
 
-            # Optional HydraMesh service: Minimal for RT audio networking
-            systemd.services.hydramesh = {
-              enable = false;  # Disabled by default; enable via config
-              description = "HydraMesh for RT Audio P2P";
-              wantedBy = [ "multi-user.target" ];
-              serviceConfig = {
-                ExecStart = "${pkgs.hydramesh-pkg}/bin/hydramesh --config /etc/hydramesh/config.toml";
-                Restart = "always";
-                User = "hydramesh";
-                DynamicUser = true;
-                PrivateDevices = true;
-                ProtectSystem = "strict";
-                ProtectHome = true;
-                PrivateTmp = true;
-                NoNewPrivileges = true;
-                CapabilityBoundingSet = "";
-                RestrictNamespaces = true;
-                SystemCallFilter = "@system-service ~@privileged";
-              };
+            # HydraMesh service from provided flake
+            services.hydramesh = {
+              enable = false;  # Disabled by default; enable via config or installer
+              configFile = "/etc/hydramesh/config.json";
+              firewallEnable = false;  # Optional firewall for dynamic ports
+              apparmorEnable = false;  # Optional AppArmor confinement
             };
+
+            # HydraMesh config.json
+            environment.etc."hydramesh/config.json".text = ''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "transport": {
+      "type": "string",
+      "enum": ["gRPC", "native-lisp", "WebSocket"],
+      "description": "Communication transport protocol (e.g., 'gRPC' for default interop)."
+    },
+    "host": {
+      "type": "string",
+      "description": "Host address (e.g., 'localhost' for local testing)."
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "description": "Port number (e.g., 50051 for gRPC)."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["client", "server", "p2p", "auto", "master"],
+      "description": "Node operating mode (e.g., 'p2p' for self-healing redundancy)."
+    },
+    "node-id": {
+      "type": "string",
+      "description": "Unique node identifier (e.g., UUID for distributed systems)."
+    },
+    "peers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of peer addresses for P2P (e.g., ['peer1:50051', 'peer2:50052'])."
+    },
+    "group-rtt-threshold": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "description": "RTT threshold in ms for peer grouping (default 50 for <50ms clusters)."
+    },
+    "plugins": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Plugin configurations (e.g., {'udp': true} for custom transports)."
+    },
+    "storage": {
+      "type": "string",
+      "enum": ["streamdb", "in-memory"],
+      "description": "Persistence backend (e.g., 'streamdb' for StreamDB integration)."
+    },
+    "streamdb-path": {
+      "type": "string",
+      "description": "Path to StreamDB file (required if storage='streamdb', e.g., 'dcf.streamdb')."
+    },
+    "optimization-level": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "Optimization level (e.g., 2+ enables StreamDB quick mode for ~100MB/s reads)."
+    },
+    "retry-max": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3,
+      "description": "Max retries for transient errors (e.g., in StreamDB ops or gRPC calls)."
+    }
+  },
+  "required": ["transport", "host", "port", "mode"],
+  "additionalProperties": true,
+  "dependencies": {
+    "storage": {
+      "oneOf": [
+        { "properties": { "storage": { "const": "streamdb" } }, "required": ["streamdb-path"] },
+        { "properties": { "storage": { "const": "in-memory" } } }
+      ]
+    }
+  }
+}
+            '';
           })
         ];
       };
@@ -621,10 +687,10 @@ echo "Persist specialisations: specialisation.lts-backup.configuration = { boot.
             boot.extraModprobeConfig = ''
               options snd_usb_audio nrpacks=1 low_latency=1
             '';
-            environment.systemPackages = basicPackages ++ [ pkgs.usbutils pkgs.libusb pkgs.alsa-firmware pkgs.alsa-tools ];
+            environment.systemPackages = basicPackages ++ [ pkgs.usbutils pkgs.libusb pkgs.alsa-firmware pkgs.alsa-tools sbclWithPkgs hydramesh.packages.${system}.toggleScript hydramesh.packages.${system}.statusScript hydramesh.packages.${system}.streamdb ];
 
             programs.hyprland.enable = true;
-            environment.systemPackages = basicPackages ++ [ pkgs.hyprpaper pkgs.waybar pkgs.wofi pkgs.kitty pkgs.grim pkgs.slurp pkgs.wpctl pkgs.guitarix pkgs.brightnessctl pkgs.playerctl pkgs.zenity pkgs.dialog pkgs.python3 pkgs.disko pkgs.ardour pkgs.fluidsynth pkgs.hydramesh-pkg pkgs.streamdb-pkg pkgs.qjackctl ];
+            environment.systemPackages = basicPackages ++ [ pkgs.hyprpaper pkgs.waybar pkgs.wofi pkgs.kitty pkgs.grim pkgs.slurp pkgs.wpctl pkgs.brightnessctl pkgs.playerctl pkgs.zenity pkgs.dialog pkgs.python3 pkgs.disko pkgs.ardour pkgs.fluidsynth pkgs.hydramesh-pkg pkgs.streamdb-pkg pkgs.qjackctl ];
 
             environment.etc."hypr/hyprland.conf".text = ''
               exec-once = kitty
@@ -962,22 +1028,11 @@ else
   echo "Install amidi: nix-shell -p alsa-utils --run amidi"
 fi
 
-# Kernel Switching (using specialisations)
-echo "Kernel Management: Default RT for low-latency; LTS backup for stability."
-if [ "$IS_LIVE" = true ]; then
-  echo "Live mode: Test RT with 'cyclictest -l 100000 -m -n -p99 -q'."
+# HydraMesh configuration check
+if [ -f "/etc/hydramesh/config.json" ]; then
+  echo "HydraMesh config found at /etc/hydramesh/config.json. Ensure 'peers' and 'port' are set for P2P."
 else
-  read -p "Switch to LTS backup kernel? (y/n): " SWITCH
-  if [ "$SWITCH" = "y" ]; then
-    if [ "$DRY_RUN" = false ]; then
-      sudo nixos-rebuild boot --specialisation lts-backup || echo "Failed; ensure specialisation in configuration.nix."
-      echo "LTS set for next boot. Reboot to apply."
-    else
-      echo "[Dry-run] Would switch to LTS."
-    fi
-  else
-    echo "Staying on RT. To switch: sudo nixos-rebuild boot --specialisation lts-backup"
-  fi
+  echo "Warning: /etc/hydramesh/config.json not found. Create with 'transport', 'host', 'port', 'mode'."
 fi
 
 # Final verification
@@ -986,27 +1041,6 @@ echo "Setup complete! Reboot if needed. Log saved to $LOG_FILE."
 echo "Persist specialisations: specialisation.lts-backup.configuration = { boot.kernelPackages = pkgs.linuxPackages_lts; };"
               '';
               mode = "0755";
-            };
-
-            # Optional HydraMesh service: Minimal for RT audio networking
-            systemd.services.hydramesh = {
-              enable = false;  # Disabled by default; enable via config
-              description = "HydraMesh for RT Audio P2P";
-              wantedBy = [ "multi-user.target" ];
-              serviceConfig = {
-                ExecStart = "${pkgs.hydramesh-pkg}/bin/hydramesh --config /etc/hydramesh/config.toml";
-                Restart = "always";
-                User = "hydramesh";
-                DynamicUser = true;
-                PrivateDevices = true;
-                ProtectSystem = "strict";
-                ProtectHome = true;
-                PrivateTmp = true;
-                NoNewPrivileges = true;
-                CapabilityBoundingSet = "";
-                RestrictNamespaces = true;
-                SystemCallFilter = "@system-service ~@privileged";
-              };
             };
 
             # Installer script: Lean, audio-focused
@@ -1046,17 +1080,18 @@ EOF
 disko --mode format /tmp/disko.nix
 disko --mode mount /tmp/disko.nix /mnt
 nixos-generate-config --root /mnt
-mkdir -p /mnt/etc/hypr /mnt/etc/waybar /mnt/etc/wofi
+mkdir -p /mnt/etc/hypr /mnt/etc/waybar /mnt/etc/wofi /mnt/etc/hydramesh
 cp /etc/hypr/* /mnt/etc/hypr/
 cp /etc/waybar/* /mnt/etc/waybar/
 cp /etc/wofi/* /mnt/etc/wofi/
+cp /etc/hydramesh/* /mnt/etc/hydramesh/
 cd /mnt/etc/nixos
 sed -i "s|time.timeZone = .*|time.timeZone = \"$TZ\";|" configuration.nix || true
 sed -i "s|en_US.UTF-8|$LOCALE|" configuration.nix || true
 sed -i "/services.xserver.enable = true;/a\    layout = \"$KB\";" configuration.nix || true
 sed -i "s|networking.hostName = .*|networking.hostName = \"$HOSTNAME\";|" configuration.nix || true
 if [ "$HYDRAMESH" = "true" ]; then
-  echo "systemd.services.hydramesh.enable = true;" >> configuration.nix
+  echo "services.hydramesh.enable = true;" >> configuration.nix
 fi
 sed -i '/users.users.nixos = {/,/};/d' configuration.nix || true
 echo "users.users.$USERNAME = { isNormalUser = true; extraGroups = [ \"audio\" \"jackaudio\" \"video\" \"wheel\" ]; initialHashedPassword = \"$(mkpasswd -m sha-512 "$USERPW")\"; };" >> configuration.nix
@@ -1099,7 +1134,7 @@ dialog --msgbox "Installation complete. Reboot." 7 50
     packages.${system}.installer = self.nixosConfigurations.installer.config.system.build.isoImage;
 
     devShells.${system}.default = pkgs.mkShell {
-      packages = audioPackages ++ basicPackages;
+      packages = audioPackages ++ basicPackages ++ [ sbclWithPkgs hydramesh.packages.${system}.toggleScript hydramesh.packages.${system}.statusScript hydramesh.packages.${system}.streamdb ];
     };
   };
 }
