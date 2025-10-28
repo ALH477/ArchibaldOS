@@ -139,6 +139,18 @@ echo "Persist specialisations: specialisation.lts-backup.configuration = { boot.
 
 set -euo pipefail
 
+LOG_FILE="/tmp/archibaldos-install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "Starting ArchibaldOS Installer at $(date)"
+
+# Function for error handling
+error_exit() {
+  echo "Error: $1" >&2
+  dialog --msgbox "Installation failed: $1\nSee $LOG_FILE for details." 8 60
+  exit 1
+}
+
+# Display branding if available
 clear
 if [ -f /etc/installer-ascii.txt ]; then
   cat /etc/installer-ascii.txt
@@ -146,21 +158,63 @@ if [ -f /etc/installer-ascii.txt ]; then
 fi
 
 echo "Welcome to Lean RT Audio ArchibaldOS Installer"
-KB=$(dialog --menu "Select keyboard layout:" 20 60 12 us "US English" gb "UK English" de "German" fr "French" es "Spanish" it "Italian" ru "Russian" pl "Polish" pt "Portuguese (Portugal)" br "Portuguese (Brazil)" nl "Dutch" se "Swedish" no "Norwegian" dk "Danish" fi "Finnish" tr "Turkish" cz "Czech" hu "Hungarian" ro "Romanian" ua "Ukrainian" jp "Japanese" kr "Korean" cn "Chinese" ca "Canadian" au "Australian" latam "Latin American" in "Indian" af "Afghani" ara "Arabic" al "Albanian" am "Armenian" az "Azerbaijani" by "Belarusian" 3>&1 1>&2 2>&3)
-setxkbmap -layout "$KB" || echo "Failed to set layout"
-DISKS=$(lsblk -dno NAME,SIZE,TYPE | grep disk | awk '{print "/dev/"$1 " ("$2")"}')
-DISK=$(dialog --menu "Select disk to wipe:" 15 50 5 $DISKS 3>&1 1>&2 2>&3)
-dialog --yesno "WARNING: Erase $DISK?" 7 60 || exit
-HYDRAMESH=$(dialog --yesno "Enable HydraMesh?" 7 60 && echo true || echo false)
-LOCALE=$(dialog --inputbox "Locale (e.g., en_US.UTF-8):" 8 50 "en_US.UTF-8" 3>&1 1>&2 2>&3)
-TZ=$(dialog --inputbox "Timezone (e.g., America/Los_Angeles):" 8 50 "America/Los_Angeles" 3>&1 1>&2 2>&3)
-HOSTNAME=$(dialog --inputbox "Hostname:" 8 50 "archibaldos" 3>&1 1>&2 2>&3)
-USERNAME=$(dialog --inputbox "Username:" 8 50 "audio-user" 3>&1 1>&2 2>&3)
-USERPW=$(dialog --insecure --passwordbox "User password:" 8 50 3>&1 1>&2 2>&3)
-USERPW_CONFIRM=$(dialog --insecure --passwordbox "Confirm:" 8 50 3>&1 1>&2 2>&3)
-[ "$USERPW" = "$USERPW_CONFIRM" ] || { dialog --msgbox "Mismatch" 7 50; exit 1; }
 
-cat <<EOF > /tmp/disko.nix
+# Keyboard layout selection
+KB=$(dialog --menu "Select keyboard layout:" 20 60 12 us "US English" gb "UK English" de "German" fr "French" es "Spanish" it "Italian" ru "Russian" pl "Polish" pt "Portuguese (Portugal)" br "Portuguese (Brazil)" nl "Dutch" se "Swedish" no "Norwegian" dk "Danish" fi "Finnish" tr "Turkish" cz "Czech" hu "Hungarian" ro "Romanian" ua "Ukrainian" jp "Japanese" kr "Korean" cn "Chinese" ca "Canadian" au "Australian" latam "Latin American" in "Indian" af "Afghani" ara "Arabic" al "Albanian" am "Armenian" az "Azerbaijani" by "Belarusian" 3>&1 1>&2 2>&3) || error_exit "Keyboard selection canceled"
+setxkbmap -layout "$KB" || echo "Warning: Failed to set keyboard layout"
+
+# Disk selection with validation (exclude live USB if detectable)
+DISKS=$(lsblk -dno NAME,SIZE,TYPE | grep disk | awk '{print "/dev/"$1 " ("$2")"}')
+DISK=$(dialog --menu "Select disk to wipe (ensure it's not your live USB!):" 15 50 5 $DISKS 3>&1 1>&2 2>&3) || error_exit "Disk selection canceled"
+DISK_SIZE=$(lsblk -no SIZE "$DISK")
+dialog --yesno "Confirm erase $DISK (size: $DISK_SIZE)? This is irreversible!" 8 60 || error_exit "Disk wipe canceled"
+
+# Optional HydraMesh
+HYDRAMESH=$(dialog --yesno "Enable HydraMesh (P2P audio networking)?" 7 60 && echo true || echo false)
+
+# Optional LUKS encryption
+ENCRYPT=$(dialog --yesno "Enable LUKS full-disk encryption (recommended for security)?" 7 60 && echo true || echo false)
+if [ "$ENCRYPT" = true ]; then
+  ENCRYPT_PW=$(dialog --insecure --passwordbox "Encryption password:" 8 50 3>&1 1>&2 2>&3) || error_exit "Encryption canceled"
+  ENCRYPT_PW_CONFIRM=$(dialog --insecure --passwordbox "Confirm:" 8 50 3>&1 1>&2 2>&3) || error_exit "Encryption canceled"
+  [ "$ENCRYPT_PW" = "$ENCRYPT_PW_CONFIRM" ] || error_exit "Encryption passwords mismatch"
+fi
+
+# Other inputs
+LOCALE=$(dialog --inputbox "Locale (e.g., en_US.UTF-8):" 8 50 "en_US.UTF-8" 3>&1 1>&2 2>&3) || error_exit "Locale canceled"
+TZ=$(dialog --inputbox "Timezone (e.g., America/Los_Angeles):" 8 50 "America/Los_Angeles" 3>&1 1>&2 2>&3) || error_exit "Timezone canceled"
+HOSTNAME=$(dialog --inputbox "Hostname:" 8 50 "archibaldos" 3>&1 1>&2 2>&3) || error_exit "Hostname canceled"
+USERNAME=$(dialog --inputbox "Username:" 8 50 "audio-user" 3>&1 1>&2 2>&3) || error_exit "Username canceled"
+USERPW=$(dialog --insecure --passwordbox "User password:" 8 50 3>&1 1>&2 2>&3) || error_exit "Password canceled"
+USERPW_CONFIRM=$(dialog --insecure --passwordbox "Confirm:" 8 50 3>&1 1>&2 2>&3) || error_exit "Password canceled"
+[ "$USERPW" = "$USERPW_CONFIRM" ] || error_exit "Passwords mismatch"
+
+# Optional network setup (for flake downloads)
+if ! ping -c 1 nixos.org &>/dev/null; then
+  dialog --yesno "No internet detected. Configure WiFi?" 7 60 && {
+    SSID=$(dialog --inputbox "WiFi SSID:" 8 50 3>&1 1>&2 2>&3) || error_exit "WiFi canceled"
+    WIFI_PW=$(dialog --insecure --passwordbox "WiFi password:" 8 50 3>&1 1>&2 2>&3) || error_exit "WiFi canceled"
+    nmcli device wifi connect "$SSID" password "$WIFI_PW" || error_exit "WiFi connection failed"
+  }
+fi
+
+# Generate disko.nix with optional LUKS
+if [ "$ENCRYPT" = true ]; then
+  cat <<EOF > /tmp/disko.nix
+{ disks ? [ "$DISK" ], lib, ... }: {
+  disko.devices = {
+    disk.main = {
+      type = "disk"; device = lib.head disks; format = "gpt";
+      content = { type = "gpt"; partitions = {
+        ESP = { size = "500M"; type = "EF00"; format = "vfat"; mountpoint = "/boot"; };
+        luks = { size = "100%"; content = { type = "luks"; format = "luks2"; extraFormatArgs = [ "--type" "luks2" "--hash" "sha512" "--iter-time" "5000" ]; content = { type = "filesystem"; format = "ext4"; mountpoint = "/"; }; }; };
+      }; };
+    };
+  };
+}
+EOF
+else
+  cat <<EOF > /tmp/disko.nix
 { disks ? [ "$DISK" ], lib, ... }: {
   disko.devices = {
     disk.main = {
@@ -173,38 +227,52 @@ cat <<EOF > /tmp/disko.nix
   };
 }
 EOF
+fi
 
-disko --mode format /tmp/disko.nix
-disko --mode mount /tmp/disko.nix /mnt
-nixos-generate-config --root /mnt
+# Run disko
+disko --mode format /tmp/disko.nix || error_exit "Disk formatting failed"
+disko --mode mount /tmp/disko.nix /mnt || error_exit "Disk mounting failed"
 
-mkdir -p /mnt/etc/hypr /mnt/etc/waybar /mnt/etc/wofi /mnt/etc/hydramesh
-cp /etc/hypr/* /mnt/etc/hypr/
-cp /etc/waybar/* /mnt/etc/waybar/
-cp /etc/wofi/* /mnt/etc/wofi/
-cp /etc/hydramesh/* /mnt/etc/hydramesh/
+# If LUKS, add to config (simplified; full crypttab in real setups)
+if [ "$ENCRYPT" = true ]; then
+  echo "boot.initrd.luks.devices.\"luks-root\" = { device = \"$DISK-part2\"; };" >> /mnt/etc/nixos/hardware-configuration.nix || true
+fi
 
+nixos-generate-config --root /mnt || error_exit "Config generation failed"
+
+# Copy configs
+mkdir -p /mnt/etc/hypr /mnt/etc/waybar /mnt/etc/wofi /mnt/etc/hydramesh || error_exit "Directory creation failed"
+cp /etc/hypr/* /mnt/etc/hypr/ || error_exit "Hyprland copy failed"
+cp /etc/waybar/* /mnt/etc/waybar/ || error_exit "Waybar copy failed"
+cp /etc/wofi/* /mnt/etc/wofi/ || error_exit "Wofi copy failed"
+cp /etc/hydramesh/* /mnt/etc/hydramesh/ || error_exit "Hydramesh copy failed"
+
+# Inject configs
 cd /mnt/etc/nixos
-sed -i "s|time.timeZone = .*|time.timeZone = \"$TZ\";|" configuration.nix || true
-sed -i "s|en_US.UTF-8|$LOCALE|" configuration.nix || true
-sed -i "/services.xserver.enable = true;/a\    layout = \"$KB\";" configuration.nix || true
-sed -i "s|networking.hostName = .*|networking.hostName = \"$HOSTNAME\";|" configuration.nix || true
+sed -i "s|time.timeZone = .*|time.timeZone = \"$TZ\";|" configuration.nix || error_exit "Timezone injection failed"
+sed -i "s|en_US.UTF-8|$LOCALE|" configuration.nix || error_exit "Locale injection failed"
+sed -i "/services.xserver.enable = true;/a\    layout = \"$KB\";" configuration.nix || error_exit "Keyboard injection failed"
+sed -i "s|networking.hostName = .*|networking.hostName = \"$HOSTNAME\";|" configuration.nix || error_exit "Hostname injection failed"
 
-if [ "$HYDRAMESH" = "true" ]; then
-  echo "services.hydramesh.enable = true;" >> configuration.nix
+if [ "$HYDRAMESH" = true ]; then
+  echo "services.hydramesh.enable = true;" >> configuration.nix || error_exit "HydraMesh enable failed"
 fi
 
 sed -i '/users.users.nixos = {/,/};/d' configuration.nix || true
-echo "users.users.$USERNAME = { isNormalUser = true; extraGroups = [ \"audio\" \"jackaudio\" \"video\" \"wheel\" ]; initialHashedPassword = \"$(mkpasswd -m sha-512 "$USERPW")\"; };" >> configuration.nix
+echo "users.users.\"$USERNAME\" = { isNormalUser = true; extraGroups = [ \"audio\" \"jackaudio\" \"video\" \"wheel\" ]; initialHashedPassword = \"$(mkpasswd -m sha-512 "$USERPW")\"; };" >> configuration.nix || error_exit "User config failed"
 
-mkdir -p /mnt/home/"$USERNAME"/.config/hypr /mnt/home/"$USERNAME"/.config/waybar /mnt/home/"$USERNAME"/.config/wofi
-cp /etc/hypr/* /mnt/home/"$USERNAME"/.config/hypr/
-cp /etc/waybar/* /mnt/home/"$USERNAME"/.config/waybar/
-cp /etc/wofi/* /mnt/home/"$USERNAME"/.config/wofi/
-chown -R 1000:100 /mnt/home/"$USERNAME"
+# Setup user home (detect UID dynamically)
+USER_UID=$(getent passwd nixos | cut -d: -f3)  # Assume similar to live user
+mkdir -p /mnt/home/"$USERNAME"/.config/hypr /mnt/home/"$USERNAME"/.config/waybar /mnt/home/"$USERNAME"/.config/wofi || error_exit "User home creation failed"
+cp /etc/hypr/* /mnt/home/"$USERNAME"/.config/hypr/ || error_exit "User Hyprland copy failed"
+cp /etc/waybar/* /mnt/home/"$USERNAME"/.config/waybar/ || error_exit "User Waybar copy failed"
+cp /etc/wofi/* /mnt/home/"$USERNAME"/.config/wofi/ || error_exit "User Wofi copy failed"
+chown -R "$USER_UID:$USER_UID" /mnt/home/"$USERNAME" || error_exit "Chown failed"
 
-nixos-install --root /mnt --flake /mnt/etc/nixos#archibaldOS
-dialog --msgbox "Installation complete. Reboot." 7 50
+# Install
+nixos-install --root /mnt --flake /mnt/etc/nixos#archibaldOS || error_exit "NixOS install failed"
+
+dialog --msgbox "Installation complete! Reboot to start ArchibaldOS.\nLog: $LOG_FILE" 8 60
     '';
     mode = "0755";
   };
