@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     musnix.url = "github:musnix/musnix";
     hyprland.url = "github:hyprwm/Hyprland";
-    hydramesh.url = "path:../HydraMesh";
+    hydramesh.url = "path:./HydraMesh";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -24,7 +24,7 @@
       ];
     };
 
-    wallpaperSrc = ../wallpaper.jpg;
+    wallpaperSrc = ./modules/assets/wallpaper.jpg;
 
     sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
       cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
