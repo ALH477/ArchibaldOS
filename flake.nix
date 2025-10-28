@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     musnix.url = "github:musnix/musnix";
     hyprland.url = "github:hyprwm/Hyprland";
-    hydramesh.url = "path:./HydraMesh";
+    hydramesh.url = "path:../HydraMesh";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -28,7 +28,7 @@
 
     sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
       cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
-      cl-lorawan cl-lsquic cl-can cl-sctp cl-cl zigbee
+      cl-lorawan cl-lsquic cl-can cl-sctp cl-zigbee
     ]);
   in {
     nixosConfigurations = {
@@ -42,6 +42,7 @@
           ./modules/users.nix
           ./modules/installer.nix
           ./modules/hydramesh.nix
+          ./modules/branding.nix
           ({ config, pkgs, lib, ... }: {
             environment.systemPackages = with pkgs; [
               usbutils libusb alsa-firmware alsa-tools sbclWithPkgs
@@ -54,6 +55,15 @@
             hardware.opengl.enable = true;
             isoImage.squashfsCompression = "gzip -Xcompression-level 1";
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+            # Enable DeMoD LLC branding
+            branding = {
+              enable = true;
+              asciiArt = true;
+              splash = true;
+              wallpaper = true;
+              waybarIcons = true;
+            };
           })
         ];
       };
