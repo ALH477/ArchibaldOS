@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     musnix.url = "github:musnix/musnix";
     hyprland.url = "github:hyprwm/Hyprland";
-    hydramesh.url = "path:../HydraMesh";
+    hydramesh.url = "path:./HydraMesh";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
   };
