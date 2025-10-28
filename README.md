@@ -45,60 +45,6 @@ ArchibaldOS bridges NixOS's reproducibility with specialized RT audio capabiliti
 
 ## **Technical Architecture Diagrams**
 
-### **1. System Stack Overview (Mermaid)**
-
-```mermaid
-graph TD
-    subgraph "Hardware Layer"
-        A[CPU Cores 0-3] --> B[Core 0: System]
-        A --> C[Cores 1-3: Audio RT]
-        D[USB Audio Interface] --> E[snd_usb_audio]
-        F[Network NIC] --> G[gRPC/WebSocket]
-    end
-
-    subgraph "Kernel Layer"
-        H[PREEMPT_RT Kernel] --> I[rtirq: IRQ Priority]
-        H --> J[das_watchdog: Hang Prevention]
-        H --> K[isolcpus=1-3, nohz_full=1-3]
-        E --> H
-    end
-
-    subgraph "Audio Server"
-        L[PipeWire] --> M[JACK Bridge]
-        L --> N[ALSA Bridge]
-        L --> O[PulseAudio Bridge]
-        L --> P[96kHz, 32-sample quantum]
-    end
-
-    subgraph "User Applications"
-        Q[Ardour] --> M
-        R[VCV Rack] --> M
-        S[SuperCollider] --> M
-        T[Guitarix] --> M
-        U[ProjectM] --> L
-    end
-
-    subgraph "P2P & Persistence"
-        V[HydraMesh SBCL] --> W[gRPC Server]
-        V --> X[StreamDB libstreamdb.so]
-        W --> G
-        X --> Y[/var/lib/hydramesh/streamdb]
-    end
-
-    subgraph "Desktop"
-        Z[Hyprland Wayland] --> AA[Waybar: HydraMesh Status]
-        Z --> AB[Wofi Launcher]
-        Z --> AC[Kitty Terminal]
-    end
-
-    B --> H
-    C --> L
-    L --> Q
-    V --> Z
-```
-
-**Explanation**: Hardware isolation feeds into a tuned kernel, which powers PipeWire's low-latency graph. Apps connect via JACK bridges, while HydraMesh handles networked audio with StreamDB persistence.
-
 ### **2. Audio Signal Path & Latency Breakdown (Mermaid + Table)**
 
 ```mermaid
