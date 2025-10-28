@@ -32,9 +32,7 @@ if [ -z "$USER" ]; then
 fi
 if ! id "$USER" &>/dev/null; then
   echo "Error: User $USER does not exist."
- 
-
- exit 1
+  exit 1
 fi
 
 echo "Adding $USER to audio/realtime groups..."
