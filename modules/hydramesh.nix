@@ -35,9 +35,9 @@
     #!/usr/bin/env bash
     STATUS=$(systemctl is-active hydramesh)
     if [ "$STATUS" = "active" ]; then
-      echo "{\"text\": \"ON\", \"class\": \"hydramesh-active\", \"tooltip\": \"HydraMesh running\", \"icon\": \"/etc/hydramesh/hydramesh.svg\"}"
+      echo "{\"text\": \"ON\", \"class\": \"hydramesh-active\", \"tooltip\": \"HydraMesh running\", \"icon\": \"/etc/waybar/hydramesh-on.svg\"}"
     else
-      echo "{\"text\": \"OFF\", \"class\": \"hydramesh-inactive\", \"tooltip\": \"HydraMesh stopped\", \"icon\": \"/etc/hydramesh/hydramesh.svg\"}"
+      echo "{\"text\": \"OFF\", \"class\": \"hydramesh-inactive\", \"tooltip\": \"HydraMesh stopped\", \"icon\": \"/etc/waybar/hydramesh-off.svg\"}"
     fi
   '';
 in {
