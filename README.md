@@ -1,6 +1,6 @@
 # **ArchibaldOS README.md**  
 *Lean Real-Time Audio NixOS Distribution*  
-![ArchibaldOS](modules/assets/ArchibaldOS-logo.png)
+![ArchibaldOS](modules/assets/logo.png)
 
 ArchibaldOS is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design. Post-install optimizations via the embedded `audio-setup.sh` script enable sub-millisecond latency tuning, making it ideal for professional live performance, recording, and synthesis.
 
