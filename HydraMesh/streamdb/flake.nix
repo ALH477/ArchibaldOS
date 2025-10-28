@@ -29,7 +29,7 @@
         meta = with pkgs.lib; {
           description = "A reverse Trie index key-value database for path-based queries with prefix searches.";
           license = licenses.lgpl3;
-          homepage = "https://github.com/xai/streamdb";
+          homepage = "https://github.com/ALH477/DeMoD-streamdb";
         };
       };
 
