@@ -32,7 +32,9 @@ if [ -z "$USER" ]; then
 fi
 if ! id "$USER" &>/dev/null; then
   echo "Error: User $USER does not exist."
-  exit 1
+ 
+
+ exit 1
 fi
 
 echo "Adding $USER to audio/realtime groups..."
@@ -138,6 +140,12 @@ echo "Persist specialisations: specialisation.lts-backup.configuration = { boot.
 #!/usr/bin/env bash
 
 set -euo pipefail
+
+clear
+if [ -f /etc/installer-ascii.txt ]; then
+  cat /etc/installer-ascii.txt
+  sleep 1.5
+fi
 
 echo "Welcome to Lean RT Audio ArchibaldOS Installer"
 KB=$(dialog --menu "Select keyboard layout:" 20 60 12 us "US English" gb "UK English" de "German" fr "French" es "Spanish" it "Italian" ru "Russian" pl "Polish" pt "Portuguese (Portugal)" br "Portuguese (Brazil)" nl "Dutch" se "Swedish" no "Norwegian" dk "Danish" fi "Finnish" tr "Turkish" cz "Czech" hu "Hungarian" ro "Romanian" ua "Ukrainian" jp "Japanese" kr "Korean" cn "Chinese" ca "Canadian" au "Australian" latam "Latin American" in "Indian" af "Afghani" ara "Arabic" al "Albanian" am "Armenian" az "Azerbaijani" by "Belarusian" 3>&1 1>&2 2>&3)
