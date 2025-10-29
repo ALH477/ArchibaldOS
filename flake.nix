@@ -35,6 +35,7 @@
       archibaldOS = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
+          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
           musnix.nixosModules.musnix
           hyprland.nixosModules.default
           ./modules/audio.nix
@@ -56,7 +57,6 @@
             isoImage.squashfsCompression = "gzip -Xcompression-level 1";
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
-            # Enable DeMoD LLC branding
             branding = {
               enable = true;
               asciiArt = true;
