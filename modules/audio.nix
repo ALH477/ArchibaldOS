@@ -4,7 +4,7 @@ let
   audioPackages = with pkgs; [
     ardour audacity fluidsynth musescore guitarix
     csound faust portaudio rtaudio supercollider qjackctl
-    surge vcvrack pd
+    surge pd
   ];
 in {
   musnix.enable = true;
