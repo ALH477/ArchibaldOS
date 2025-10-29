@@ -311,7 +311,164 @@ environment.etc."asound.conf".text = ''
 - **Education**: VCV Rack patching; share sessions via P2P.
 
 ---
+# Building ArchibaldOS: In-Depth Guide
 
+ArchibaldOS is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design. Post-install optimizations via the embedded audio-setup.sh script enable sub-millisecond latency tuning, making it ideal for professional live performance, recording, and synthesis.
+
+This guide assumes you have cloned the repository containing the flake.nix and related configurations. It covers building an ISO image, installation, configuration, and optimization steps. All commands are run from the repository root.
+
+## Prerequisites
+
+- **Hardware**: x86_64 system with at least 4GB RAM and a compatible audio interface (e.g., USB audio/MIDI devices). For RT audio, ensure CPU supports isolcpus (e.g., multi-core Intel/AMD).
+- **Nix Installation**: Install Nix (single-user mode recommended for development):
+  ```
+  sh <(curl -L https://nixos.org/nix/install) --no-daemon
+  ```
+- **Enable Flakes**: Add to `~/.config/nix/nix.conf` (create if needed):
+  ```
+  experimental-features = nix-command flakes
+  ```
+- **Dependencies**: Git (already used for cloning), basic shell tools. No internet access needed beyond initial flake resolution, as Nix handles reproducibility.
+- **Repository Setup**: Ensure the repo includes `flake.nix`, `HydraMesh/` subdirectory (for StreamDB and Lisp components), and configs like `wallpaper.jpg`. If `cargoSha256` in HydraMesh configs is a placeholder, compute it:
+  # Building ArchibaldOS: In-Depth Guide
+
+ArchibaldOS is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design. Post-install optimizations via the embedded audio-setup.sh script enable sub-millisecond latency tuning, making it ideal for professional live performance, recording, and synthesis.
+
+This guide assumes you have cloned the repository containing the flake.nix and related configurations. It covers building an ISO image, installation, configuration, and optimization steps. All commands are run from the repository root.
+
+## Prerequisites
+
+- **Hardware**: x86_64 system with at least 4GB RAM and a compatible audio interface (e.g., USB audio/MIDI devices). For RT audio, ensure CPU supports isolcpus (e.g., multi-core Intel/AMD).
+- **Nix Installation**: Install Nix (single-user mode recommended for development):
+  ```
+  sh <(curl -L https://nixos.org/nix/install) --no-daemon
+  ```
+- **Enable Flakes**: Add to `~/.config/nix/nix.conf` (create if needed):
+  ```
+  experimental-features = nix-command flakes
+  ```
+- **Dependencies**: Git (already used for cloning), basic shell tools. No internet access needed beyond initial flake resolution, as Nix handles reproducibility.
+- **Repository Setup**: Ensure the repo includes `flake.nix`, `HydraMesh/` subdirectory (for StreamDB and Lisp components), and configs like `wallpaper.jpg`. If `cargoSha256` in HydraMesh configs is a placeholder, compute it:
+  ```
+  nix-prefetch-url --unpack path:./HydraMesh/streamdb
+  ```
+  Replace placeholders in configs with the output hash.
+
+## Building the ISO Image
+
+ArchibaldOS uses a Nix flake to generate a bootable live ISO with TUI installer. This ISO includes Musnix RT kernel, Hyprland, audio tools (e.g., Ardour, QJackCtl), and optional HydraMesh/StreamDB.
+
+1. **Enter Development Shell** (optional, for tools like SBCL):
+   ```
+   nix develop
+   ```
+   This provides audioPackages, basicPackages, and HydraMesh scripts (e.g., hydramesh-toggle).
+
+2. **Build the Installer ISO**:
+   The flake defines `packages.x86_64-linux.installer` as an ISO image. Build it:
+   ```
+   nix build .#installer
+   ```
+   - Output: `./result/iso/archibaldos-<version>.iso`.
+   - Time: ~10-30 minutes (first build caches dependencies).
+   - Customization: Edit `flake.nix` modules (e.g., add packages to `audioPackages` list) and rebuild.
+   - Verification: Check ISO size (~1-2GB) and SHA256:
+     ```
+     sha256sum result/iso/*.iso
+     ```
+
+3. **Common Issues**:
+   - **Hash Mismatch**: If `cargoSha256` errors occur for StreamDB, recompute as above and update `./HydraMesh/streamdb.nix`.
+   - **Unfree Packages**: If needed (rare), set `NIXPKGS_ALLOW_UNFREE=1` env var.
+   - **Offline Build**: Use `nix build --option substituters ''` after initial fetch.
+
+## Installing ArchibaldOS
+
+Burn the ISO to USB (e.g., via `dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress`) and boot. The live environment starts Hyprland with audio-user privileges.
+
+### Live Environment Usage
+- Login: User `nixos`, password `nixos`.
+- Test Audio: Run `qjackctl` for JACK setup; test latency with `jack_iodelay`.
+- HydraMesh: If enabled, toggle via `hydramesh-toggle`; status in Waybar.
+
+### TUI Installer
+The ISO includes `/usr/bin/installer.sh` (a dialog-based TUI):
+1. Run `sudo installer.sh`.
+2. Steps (interactive):
+   - Select keyboard layout (e.g., "us").
+   - Choose disk (e.g., `/dev/sda`); confirm wipe.
+   - Enable HydraMesh (y/n) for P2P audio networking.
+   - Set locale (e.g., `en_US.UTF-8`), timezone (e.g., `America/New_York`), hostname, username/password.
+   - Encryption: Optionally enable LUKS (modifies disko.nix for encrypted root).
+3. Installer Actions:
+   - Formats disk via Disko (GPT with EFI boot + ext4 root).
+   - Generates `/mnt/etc/nixos/configuration.nix`.
+   - Copies configs (Hyprland, Waybar, Wofi, HydraMesh).
+   - Installs via `nixos-install --flake /mnt/etc/nixos#archibaldOS`.
+4. Reboot: System boots to Hyprland with configured user.
+
+Post-install: Run `/etc/audio-setup.sh` as sudo for latency tweaks (adds groups, sysctl, IRQ pinning).
+
+## Configuring and Customizing
+
+ArchibaldOS uses declarative NixOS configs. Edit files in `/etc/nixos/` and apply with `nixos-rebuild switch`.
+
+### Key Configurations
+- **Audio Optimizations** (from musnix.nix):
+  - RT kernel params: Edit `boot.kernelParams` for CPU isolation.
+  - PipeWire: Tune quantum in `services.pipewire.extraConfig` for <1ms latency.
+- **Desktop** (hyprland.nix):
+  - Config: `/etc/hypr/hyprland.conf` (binds, animations). Add wallpapers via `environment.etc."hypr/wallpaper.jpg".source`.
+- **HydraMesh/StreamDB** (hydramesh.nix):
+  - Enable: `services.hydramesh.enable = true;`.
+  - Config: Edit `/etc/hydramesh/config.json` (e.g., set "mode": "p2p", "storage": "streamdb").
+  - Firewall: Enable `services.hydramesh.firewallEnable` for dynamic ports.
+- **Users**: Add via `users.users.<name>`; ensure "audio" group for RT priorities.
+
+### Rebuilding the System
+From installed system:
+```
+sudo nixos-rebuild switch --flake /etc/nixos#archibaldOS
+```
+- Flake Updates: `nix flake update` in repo, then rebuild.
+
+## Post-Install Optimizations
+
+Run `/etc/audio-setup.sh` (embedded in configs):
+- **Usage**: `sudo /etc/audio-setup.sh --dry-run` (test), then without flag.
+- Actions:
+  - Adds user to audio/realtime groups.
+  - Applies sysctl (e.g., swappiness=10).
+  - Detects/optimizes audio PCI devices.
+  - Pins IRQs, sets RT priorities for apps (e.g., Ardour).
+  - Tests: Runs cyclictest for kernel latency, jack_iodelay for audio.
+- Persist Changes: Copy echoed Nix snippets to `configuration.nix` and rebuild.
+- Benchmark: Use `cyclictest -l 100000 -p99` for <10us max latency target.
+
+## Testing and Troubleshooting
+
+- **Audio Latency**: Target sub-ms; test with `jack_iodelay` (start JACK via QJackCtl).
+- **HydraMesh**: Start service (`systemctl start hydramesh`), check logs (`journalctl -u hydramesh`).
+- **StreamDB**: Verify via Lisp REPL (in dev shell): Load `hydramesh.lisp`, init with config using "streamdb".
+- **Logs**: `/var/log/audio-setup.log` for setup; systemd for services.
+- **Issues**:
+  - RT Kernel Fail: Check `dmesg | grep rt` for isolcpus.
+  - No Audio Devices: Ensure `boot.kernelModules` includes "snd_usb_audio".
+  - Reproducibility: Use `nixos-rebuild --option tarball-ttl 0` for fresh builds.
+
+## Advanced: Extending ArchibaldOS
+
+- **Add Plugins**: Edit HydraMesh configs for protocols (e.g., LoRaWAN via "plugins": {"lorawan": true}).
+- **Dev Shell**: `nix develop` for SBCL, Rust tools; build StreamDB: `cargo build --release` in `./HydraMesh/streamdb`.
+- **VM Testing**: Build and run in QEMU:
+  ```
+  nix build .#archibaldOS.config.system.build.vm
+  ./result/bin/run-archibaldos-vm
+  ```
+- **Upgrades**: Pin inputs in `flake.lock`; update via `nix flake update`.
+
+For issues, reference NixOS docs or Musnix/Hyprland wikis. This setup ensures reproducible, low-latency audio environments.
+---
 ## **Contributing & Community**
 
 - **Repo**: [github.com/xai/archibaldos](https://github.com/xai/archibaldos)
