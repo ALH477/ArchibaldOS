@@ -28,7 +28,7 @@
 
     sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
       cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
-      cl-lorawan cl-lsquic cl-can cl-sctp cl-zigbee
+      cl-lsquic cl-can cl-sctp cl-zigbee
     ]);
   in {
     nixosConfigurations = {
@@ -46,14 +46,14 @@
           ./modules/branding.nix
           ({ config, pkgs, lib, ... }: {
             environment.systemPackages = with pkgs; [
-              usbutils libusb alsa-firmware alsa-tools sbclWithPkgs
+              usbutils libusb1 alsa-firmware alsa-tools sbclWithPkgs
             ] ++ [
               hydramesh.packages.${system}.toggleScript
               hydramesh.packages.${system}.statusScript
               hydramesh.packages.${system}.streamdb
             ];
 
-            hardware.opengl.enable = true;
+            hardware.graphics.enable = true;
             isoImage.squashfsCompression = "gzip -Xcompression-level 1";
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
@@ -64,6 +64,8 @@
               wallpaper = true;
               waybarIcons = true;
             };
+
+            users.users.nixos.initialHashedPassword = lib.mkForce null;
           })
         ];
       };
