@@ -64,8 +64,8 @@ graph LR
         F --> G[ALSA → USB DAC]
     end
 
-    style C fill:#33ff33,stroke:#000
-    style E fill:#33ff33,stroke:#000
+    style C fill:#000000,stroke:#000
+    style E fill:#000000,stroke:#000
 ```
 
 #### **Latency Breakdown Table**
@@ -119,7 +119,7 @@ graph TD
     K -->|depends on| N[../HydraMesh: cargoSha256 pinned]
     L -->|optional| O[assets/: demod-logo.png]
 
-    style F fill:#ffcc00,stroke:#000
+    style F fill:#0f0000,stroke:#000
 ```
 
 **Explanation**: Central flake composes modules; dependencies are hash-pinned for reproducibility. Build: `nix build .#archibaldOS` evaluates to a bootable ISO.
