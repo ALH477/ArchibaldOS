@@ -311,26 +311,7 @@ environment.etc."asound.conf".text = ''
 - **Education**: VCV Rack patching; share sessions via P2P.
 
 ---
-# Building ArchibaldOS: In-Depth Guide
-
-ArchibaldOS is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design. Post-install optimizations via the embedded audio-setup.sh script enable sub-millisecond latency tuning, making it ideal for professional live performance, recording, and synthesis.
-
-This guide assumes you have cloned the repository containing the flake.nix and related configurations. It covers building an ISO image, installation, configuration, and optimization steps. All commands are run from the repository root.
-
-## Prerequisites
-
-- **Hardware**: x86_64 system with at least 4GB RAM and a compatible audio interface (e.g., USB audio/MIDI devices). For RT audio, ensure CPU supports isolcpus (e.g., multi-core Intel/AMD).
-- **Nix Installation**: Install Nix (single-user mode recommended for development):
-  ```
-  sh <(curl -L https://nixos.org/nix/install) --no-daemon
-  ```
-- **Enable Flakes**: Add to `~/.config/nix/nix.conf` (create if needed):
-  ```
-  experimental-features = nix-command flakes
-  ```
-- **Dependencies**: Git (already used for cloning), basic shell tools. No internet access needed beyond initial flake resolution, as Nix handles reproducibility.
-- **Repository Setup**: Ensure the repo includes `flake.nix`, `HydraMesh/` subdirectory (for StreamDB and Lisp components), and configs like `wallpaper.jpg`. If `cargoSha256` in HydraMesh configs is a placeholder, compute it:
-  # Building ArchibaldOS: In-Depth Guide
+ # Building ArchibaldOS: In-Depth Guide
 
 ArchibaldOS is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS, derived from the Oligarchy NixOS framework. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing, MIDI workflows, and modular synthesis on x86_64 hardware. Built with the Musnix real-time kernel, a minimal Hyprland Wayland desktop, and integrations for HydraMesh (P2P audio networking) and StreamDB (audio metadata storage), ArchibaldOS delivers a lightweight, reproducible, and high-performance environment. A Text User Interface (TUI) installer simplifies setup, and essential utilities (file manager, text editor, browser) ensure basic functionality without compromising its audio-centric design. Post-install optimizations via the embedded audio-setup.sh script enable sub-millisecond latency tuning, making it ideal for professional live performance, recording, and synthesis.
 
