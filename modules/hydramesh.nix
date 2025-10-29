@@ -3,48 +3,6 @@
 let
   cfg = config.services.hydramesh;
 
-  sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
-    cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl
-    trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
-    cl-lsquic cl-can cl-sctp cl-zigbee
-  ]);
-
-  streamdb = pkgs.rustPlatform.buildRustPackage rec {
-    pname = "streamdb";
-    version = "0.1.0";
-    src = ./HydraMesh/streamdb;
-    cargoSha256 = "sha256-placeholder-compute-with-nix-prefetch";
-    meta = with lib; {
-      description = "StreamDB for HydraMesh";
-      license = licenses.lgpl3;
-    };
-    buildPhase = "cargo build --release --lib";
-    installPhase = ''
-      mkdir -p $out/lib
-      cp target/release/libstreamdb.so $out/lib/
-    '';
-  };
-
-  toggleScript = pkgs.writeShellScriptBin "hydramesh-toggle" ''
-    if systemctl is-active --quiet hydramesh; then
-      systemctl stop hydramesh
-      hyprctl notify -1 4000 "rgb(ff3333)" "HydraMesh" "Service stopped"
-      echo "OFF" > /var/lib/hydramesh/hydramesh-status
-    else
-      systemctl start hydramesh
-      hyprctl notify -1 4000 "rgb(33ff33)" "HydraMesh" "Service started"
-      echo "ON" > /var/lib/hydramesh/hydramesh-status
-    fi
-  '';
-
-  statusScript = pkgs.writeShellScriptBin "hydramesh-status" ''
-    if systemctl is-active --quiet hydramesh; then
-      echo '{"text":"ON","class":"hydramesh-active","tooltip":"HydraMesh running","icon":"/etc/waybar/hydramesh-on.svg"}'
-    else
-      echo '{"text":"OFF","class":"hydramesh-inactive","tooltip":"HydraMesh stopped","icon":"/etc/waybar/hydramesh-off.svg"}'
-    fi
-  '';
-
   configJson = builtins.fromJSON (builtins.readFile cfg.configFile);
 
 in {
@@ -60,7 +18,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ sbclWithPkgs toggleScript statusScript streamdb ];
+    environment.systemPackages = [ pkgs.sbcl pkgs.hydramesh-toggle pkgs.hydramesh-status pkgs.streamdb ];
 
     environment.etc."hydramesh".source = ./HydraMesh;
 
@@ -102,9 +60,9 @@ in {
         ExecStart = "${pkgs.writeShellScriptBin "hydramesh-start" ''
           if [ ! -d "/root/quicklisp" ]; then
             curl -O https://beta.quicklisp.org/quicklisp.lisp
-            ${sbclWithPkgs}/bin/sbcl --load quicklisp.lisp --eval '(quicklisp-quickstart:install)' --quit
+            ${pkgs.sbcl}/bin/sbcl --load quicklisp.lisp --eval '(quicklisp-quickstart:install)' --quit
           fi
-          ${sbclWithPkgs}/bin/sbcl --load /root/quicklisp/setup.lisp \
+          ${pkgs.sbcl}/bin/sbcl --load /root/quicklisp/setup.lisp \
             --load /etc/hydramesh/src/hydramesh.lisp \
             --eval '(dolist (plugin (directory "/etc/hydramesh/plugins/*.lisp")) (load plugin))' \
             --eval '(in-package :hydramesh)' \
@@ -116,7 +74,7 @@ in {
         User = "hydramesh";
         Group = "hydramesh";
         WorkingDirectory = "/etc/hydramesh";
-        Environment = "LD_LIBRARY_PATH=${streamdb}/lib";
+        Environment = "LD_LIBRARY_PATH=${pkgs.streamdb}/lib";
         DynamicUser = true;
         PrivateDevices = true;
         ProtectSystem = "strict";
