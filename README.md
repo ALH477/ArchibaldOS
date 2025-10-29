@@ -328,7 +328,7 @@ environment.etc."asound.conf".text = ''
 ## **License**
 
 **MIT License** © 2025 **DeMoD LLC**
-
+**Archibald**, the mascot is reserved.
 > HydraMesh & StreamDB: **LGPL-3.0**  
 > See: `./HydraMesh/LICENSE`, `./HydraMesh/streamdb/LICENSE`
 
