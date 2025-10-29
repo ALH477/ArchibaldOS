@@ -466,7 +466,7 @@ For issues, reference NixOS docs or Musnix/Hyprland wikis. This setup ensures re
 ## **License**
 
 **MIT License** © 2025 **DeMoD LLC**
-**Archibald**, the mascot is reserved.
+**Archibald**, the mascot & DeMoD logo is reserved.
 > HydraMesh & StreamDB: **LGPL-3.0**  
 > See: `./HydraMesh/LICENSE`, `./HydraMesh/streamdb/LICENSE`
 
