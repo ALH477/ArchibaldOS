@@ -14,7 +14,6 @@ in {
   musnix.rtirq.enable = true;
   musnix.das_watchdog.enable = true;
 
-  sound.enable = true;
   hardware.pulseaudio.enable = false;
 
   services.pipewire = {
