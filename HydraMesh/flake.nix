@@ -178,15 +178,11 @@ in {
       };
     };
 
-    # Firewall rules if enabled
-    networking.firewall = lib.mkIf cfg.firewallEnable {
-      allowedTCPPorts = let
-        configJson = builtins.fromJSON config.environment.etc."hydramesh/config.json".text;
-      in [ configJson.port ];  # Dynamic port from config.json
-      allowedUDPPorts = lib.optionals (builtins.hasAttr "plugins" configJson && 
-                                      builtins.hasAttr "lorawan" configJson.plugins && 
-                                      configJson.plugins.lorawan) [ 5683 ];  # CoAP for LoRaWAN
-    };
+# Optional: Static firewall rules (recommended for stability)
+networking.firewall = lib.mkIf cfg.firewallEnable {
+  allowedTCPPorts = [ 50051 ];  # Default gRPC port
+  allowedUDPPorts = [ ];       
+};
 
     # AppArmor profile if enabled
     security.apparmor = lib.mkIf cfg.apparmorEnable {
