@@ -1,9 +1,14 @@
-{ config, pkgs, lib, ... }: let
+{ config, pkgs, lib, ... }:
+
+let
   cfg = config.services.hydramesh;
+
   sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
-    cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
-    cl-lorawan cl-lsquic cl-can cl-sctp cl-zigbee
+    cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl
+    trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
+    cl-lsquic cl-can cl-sctp cl-zigbee
   ]);
+
   streamdb = pkgs.rustPlatform.buildRustPackage rec {
     pname = "streamdb";
     version = "0.1.0";
@@ -19,8 +24,8 @@
       cp target/release/libstreamdb.so $out/lib/
     '';
   };
+
   toggleScript = pkgs.writeShellScriptBin "hydramesh-toggle" ''
-    #!/usr/bin/env bash
     if systemctl is-active --quiet hydramesh; then
       systemctl stop hydramesh
       hyprctl notify -1 4000 "rgb(ff3333)" "HydraMesh" "Service stopped"
@@ -31,15 +36,17 @@
       echo "ON" > /var/lib/hydramesh/hydramesh-status
     fi
   '';
+
   statusScript = pkgs.writeShellScriptBin "hydramesh-status" ''
-    #!/usr/bin/env bash
-    STATUS=$(systemctl is-active hydramesh)
-    if [ "$STATUS" = "active" ]; then
-      echo "{\"text\": \"ON\", \"class\": \"hydramesh-active\", \"tooltip\": \"HydraMesh running\", \"icon\": \"/etc/waybar/hydramesh-on.svg\"}"
+    if systemctl is-active --quiet hydramesh; then
+      echo '{"text":"ON","class":"hydramesh-active","tooltip":"HydraMesh running","icon":"/etc/waybar/hydramesh-on.svg"}'
     else
-      echo "{\"text\": \"OFF\", \"class\": \"hydramesh-inactive\", \"tooltip\": \"HydraMesh stopped\", \"icon\": \"/etc/waybar/hydramesh-off.svg\"}"
+      echo '{"text":"OFF","class":"hydramesh-inactive","tooltip":"HydraMesh stopped","icon":"/etc/waybar/hydramesh-off.svg"}'
     fi
   '';
+
+  configJson = builtins.fromJSON (builtins.readFile cfg.configFile);
+
 in {
   options.services.hydramesh = {
     enable = lib.mkEnableOption "HydraMesh Lisp service";
@@ -56,36 +63,36 @@ in {
     environment.systemPackages = [ sbclWithPkgs toggleScript statusScript streamdb ];
 
     environment.etc."hydramesh".source = ./HydraMesh;
-    environment.etc."hydramesh/config.json".text = ''
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "properties": {
-    "transport": { "type": "string", "enum": ["gRPC", "native-lisp", "WebSocket"] },
-    "host": { "type": "string" },
-    "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
-    "mode": { "type": "string", "enum": ["client", "server", "p2p", "auto", "master"] },
-    "node-id": { "type": "string" },
-    "peers": { "type": "array", "items": { "type": "string" } },
-    "group-rtt-threshold": { "type": "integer", "minimum": 0, "maximum": 1000 },
-    "plugins": { "type": "object", "additionalProperties": true },
-    "storage": { "type": "string", "enum": ["streamdb", "in-memory"] },
-    "streamdb-path": { "type": "string" },
-    "optimization-level": { "type": "integer", "minimum": 0, "maximum": 3 },
-    "retry-max": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 }
-  },
-  "required": ["transport", "host", "port", "mode"],
-  "additionalProperties": true,
-  "dependencies": {
-    "storage": {
-      "oneOf": [
-        { "properties": { "storage": { "const": "streamdb" } }, "required": ["streamdb-path"] },
-        { "properties": { "storage": { "const": "in-memory" } } }
-      ]
-    }
-  }
-}
-    '';
+
+    environment.etc."hydramesh/config.json".text = builtins.toJSON {
+      "$schema" = "http://json-schema.org/draft-07/schema#";
+      type = "object";
+      properties = {
+        transport = { type = "string"; enum = [ "gRPC" "native-lisp" "WebSocket" ]; };
+        host = { type = "string"; };
+        port = { type = "integer"; minimum = 0; maximum = 65535; };
+        mode = { type = "string"; enum = [ "client" "server" "p2p" "auto" "master" ]; };
+        "node-id" = { type = "string"; };
+        peers = { type = "array"; items = { type = "string"; }; };
+        "group-rtt-threshold" = { type = "integer"; minimum = 0; maximum = 1000; };
+        plugins = { type = "object"; additionalProperties = true; };
+        storage = { type = "string"; enum = [ "streamdb" "in-memory" ]; };
+        "streamdb-path" = { type = "string"; };
+        "optimization-level" = { type = "integer"; minimum = 0; maximum = 3; };
+        "retry-max" = { type = "integer"; minimum = 1; maximum = 10; default = 3; };
+      };
+      required = [ "transport" "host" "port" "mode" ];
+      additionalProperties = true;
+      dependencies.storage.oneOf = [
+        {
+          properties.storage.const = "streamdb";
+          required = [ "streamdb-path" ];
+        }
+        {
+          properties.storage.const = "in-memory";
+        }
+      ];
+    };
 
     systemd.services.hydramesh = {
       description = "HydraMesh Lisp Node";
@@ -122,6 +129,11 @@ in {
       };
     };
 
+    networking.firewall = lib.mkIf cfg.firewallEnable {
+      allowedTCPPorts = lib.optionals (configJson ? port) [ configJson.port ];
+      allowedUDPPorts = lib.optionals (configJson ? port) [ configJson.port ];
+    };
+
     security.apparmor = lib.mkIf cfg.apparmorEnable {
       enable = true;
       profiles = [ (pkgs.writeText "apparmor-hydramesh" ''
@@ -144,6 +156,7 @@ in {
       home = "/var/lib/hydramesh";
       createHome = true;
     };
+
     users.groups.hydramesh = {};
   };
 }
