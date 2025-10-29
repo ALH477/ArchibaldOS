@@ -28,7 +28,7 @@
 
     sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
       cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
-      cl-lsquic cl-can cl-sctp cl-zigbee
+      cl-can cl-sctp cl-zigbee
     ]);
   in {
     nixosConfigurations = {
