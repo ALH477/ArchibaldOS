@@ -15,7 +15,7 @@
 
         sbcl = pkgs.sbcl;
 
-        quicklisp-dist = "2023-10-21";
+        quicklisp-dist = "2025-10-15"; # Updated to latest available dist as of October 2025
         quicklisp-setup = pkgs.writeShellScriptBin "setup-quicklisp.sh" ''
           mkdir -p $HOME/quicklisp
           curl -O https://beta.quicklisp.org/quicklisp.lisp
@@ -31,7 +31,7 @@
           "cl-ppcre" "cl-csv" "usocket" "bordeaux-threads" "curses"
           "log4cl" "trivial-backtrace" "cl-store" "mgl" "hunchensocket"
           "fiveam" "cl-dot" "cl-lsquic" "cl-serial" "cl-can" "cl-sctp"
-          "cl-zigbee" "cl-lorawan"
+          "cl-zigbee"
         ];
 
         load-deps = pkgs.writeShellScriptBin "load-deps.lisp" ''
@@ -61,8 +61,68 @@
           '';
         };
 
+        toggleScript = pkgs.writeShellScriptBin "hydramesh-toggle" ''
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          STATUS_FILE="/var/lib/hydramesh/hydramesh-status"
+          SERVICE="hydramesh"
+
+          notify() {
+            hyprctl notify -1 4000 "$1" "HydraMesh" "$2" || true
+          }
+
+          if systemctl is-active --quiet "$SERVICE"; then
+            systemctl stop "$SERVICE"
+            notify "rgb(ff3333)" "Service stopped"
+            echo "OFF" > "$STATUS_FILE"
+          else
+            systemctl start "$SERVICE"
+            notify "rgb(33ff33)" "Service started"
+            echo "ON" > "$STATUS_FILE"
+          fi
+        '';
+
+        statusScript = pkgs.writeShellScriptBin "hydramesh-status" ''
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          SERVICE="hydramesh"
+          ICON_ON="/etc/waybar/hydramesh-on.svg"
+          ICON_OFF="/etc/waybar/hydramesh-off.svg"
+
+          if systemctl is-active --quiet "$SERVICE"; then
+            cat <<EOF
+{"text":"ON","class":"hydramesh-active","tooltip":"HydraMesh running","icon":"$ICON_ON"}
+EOF
+          else
+            cat <<EOF
+{"text":"OFF","class":"hydramesh-inactive","tooltip":"HydraMesh stopped","icon":"$ICON_OFF"}
+EOF
+          fi
+        '';
+
+        streamdb = pkgs.rustPlatform.buildRustPackage rec {
+          pname = "streamdb";
+          version = "0.1.0";
+          src = self + "/streamdb";
+          cargoSha256 = "sha256-placeholder-compute-with-nix-prefetch"; # Run `nix-prefetch` or build with dummy hash to get the actual value
+          meta = with lib; {
+            description = "StreamDB for HydraMesh";
+            license = licenses.lgpl3;
+          };
+          buildPhase = "cargo build --release --lib";
+          installPhase = ''
+            mkdir -p $out/lib
+            cp target/release/libstreamdb.so $out/lib/
+          '';
+        };
+
       in {
-        packages.default = hydramesh;
+        packages = {
+          default = hydramesh;
+          inherit hydramesh toggleScript statusScript streamdb;
+        };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
