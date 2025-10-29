@@ -122,15 +122,6 @@ in {
       };
     };
 
-    networking.firewall = lib.mkIf cfg.firewallEnable {
-      allowedTCPPorts = let
-        configJson = builtins.fromJSON config.environment.etc."hydramesh/config.json".text;
-      in [ configJson.port ];
-      allowedUDPPorts = lib.optionals (builtins.hasAttr "plugins" configJson && 
-                                      builtins.hasAttr "lorawan" configJson.plugins && 
-                                      configJson.plugins.lorawan) [ 5683 ];
-    };
-
     security.apparmor = lib.mkIf cfg.apparmorEnable {
       enable = true;
       profiles = [ (pkgs.writeText "apparmor-hydramesh" ''
