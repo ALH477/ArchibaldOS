@@ -4,6 +4,7 @@
 inputs = {
   nixpkgs.follows = "nixpkgs";  # ← Inherit from ArchibaldOS/flake.nix
   flake-utils.url = "github:numtide/flake-utils";
+  };
 };
 
   outputs = { self, nixpkgs, flake-utils }:
