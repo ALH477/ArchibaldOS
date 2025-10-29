@@ -3,8 +3,8 @@
 let
   audioPackages = with pkgs; [
     ardour audacity fluidsynth musescore guitarix
-    csound faust portaudio rtaudio supercollider qjackctl
-    surge pd
+    csound csound-qt faust portaudio rtaudio supercollider qjackctl
+    surge zrythm carla puredata
   ];
 in {
   musnix.enable = true;
