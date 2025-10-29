@@ -1,11 +1,10 @@
 {
   description = "Nix flake for HydraMesh (D-LISP) SDK";
 
-inputs = {
-  nixpkgs.follows = "nixpkgs";  # ← Inherit from ArchibaldOS/flake.nix
-  flake-utils.url = "github:numtide/flake-utils";
+  inputs = {
+    nixpkgs.follows = "nixpkgs";  # ← Inherit from ArchibaldOS/flake.nix
+    flake-utils.url = "github:numtide/flake-utils";
   };
-}
 
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
