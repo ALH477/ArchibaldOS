@@ -1,4 +1,6 @@
-{ config, pkgs, lib, ... }: let
+{ config, pkgs, lib, ... }:
+
+let
   audioPackages = with pkgs; [
     ardour audacity fluidsynth musescore guitarix
     csound faust portaudio rtaudio supercollider qjackctl
@@ -72,7 +74,6 @@ in {
     };
   };
 
-  hardware.usb.enable = true;
   boot.kernelModules = [ "snd_usb_audio" "usbhid" "usbmidi" ];
   boot.extraModprobeConfig = ''
     options snd_usb_audio nrpacks=1 low_latency=1
