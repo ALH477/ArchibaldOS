@@ -12,10 +12,11 @@
           inherit system;
           config.allowUnfree = true;
         };
+        lib = pkgs.lib;
 
         sbcl = pkgs.sbcl;
 
-        quicklisp-dist = "2025-10-15"; # Updated to latest available dist as of October 2025
+        quicklisp-dist = "2023-10-21";
         quicklisp-setup = pkgs.writeShellScriptBin "setup-quicklisp.sh" ''
           mkdir -p $HOME/quicklisp
           curl -O https://beta.quicklisp.org/quicklisp.lisp
@@ -106,7 +107,7 @@ EOF
           pname = "streamdb";
           version = "0.1.0";
           src = self + "/streamdb";
-          cargoSha256 = "sha256-placeholder-compute-with-nix-prefetch"; # Run `nix-prefetch` or build with dummy hash to get the actual value
+          cargoSha256 = "sha256-placeholder-compute-with-nix-prefetch";
           meta = with lib; {
             description = "StreamDB for HydraMesh";
             license = licenses.lgpl3;
