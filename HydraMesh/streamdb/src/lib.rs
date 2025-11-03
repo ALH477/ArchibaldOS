@@ -44,16 +44,89 @@ pub use backend::{DatabaseBackend, MemoryBackend, FileBackend};
 pub use ffi::StreamDbHandle;
 pub use trie::TrieNode;
 
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::Path;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use parking_lot::Mutex;
 use lru::LruCache;
 use uuid::Uuid;
-use futures::future::Future;
+use futures::Future;
 use log::{debug, info};
-use super::StreamDbError;
-use super::CacheStats;
+
+#[derive(Debug)]
+pub enum StreamDbError {
+    Io(std::io::Error),
+    NotFound(String),
+    InvalidInput(String),
+    InvalidData(String),
+    TransactionError(String),
+    EncryptionError(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub page_size: u64,
+    pub page_header_size: u64,
+    pub max_document_size: u64,
+    pub max_db_size: u64,
+    pub max_pages: i64,
+    pub page_cache_size: usize,
+    pub use_mmap: bool,
+    pub use_compression: bool,
+    pub versions_to_keep: i32,
+    #[cfg(feature = "encryption")]
+    pub encryption_key: Option<Vec<u8>>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            page_size: 4096,
+            page_header_size: 32,
+            max_document_size: 256 * 1024 * 1024,
+            max_db_size: u64::MAX,
+            max_pages: i64::MAX,
+            page_cache_size: 1000,
+            use_mmap: true,
+            use_compression: true,
+            versions_to_keep: 2,
+            #[cfg(feature = "encryption")]
+            encryption_key: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CacheStats {
+    pub hits: usize,
+    pub misses: usize,
+}
+
+pub trait Database {
+    fn write_document(&mut self, path: &str, data: &mut dyn Read) -> Result<Uuid, StreamDbError>;
+    fn get(&self, path: &str) -> Result<Vec<u8>, StreamDbError>;
+    fn get_quick(&self, path: &str, quick: bool) -> Result<Vec<u8>, StreamDbError>;
+    fn get_id_by_path(&self, path: &str) -> Result<Option<Uuid>, StreamDbError>;
+    fn delete(&mut self, path: &str) -> Result<(), StreamDbError>;
+    fn delete_by_id(&mut self, id: Uuid) -> Result<(), StreamDbError>;
+    fn bind_to_path(&mut self, id: Uuid, path: &str) -> Result<(), StreamDbError>;
+    fn unbind_path(&mut self, id: Uuid, path: &str) -> Result<(), StreamDbError>;
+    fn search(&self, prefix: &str) -> Result<Vec<String>, StreamDbError>;
+    fn list_paths(&self, id: Uuid) -> Result<Vec<String>, StreamDbError>;
+    fn flush(&self) -> Result<(), StreamDbError>;
+    fn calculate_statistics(&self) -> Result<(i64, i64), StreamDbError>;
+    fn set_quick_mode(&mut self, enabled: bool);
+    fn snapshot(&self) -> Result<Self, StreamDbError> where Self: Sized;
+    fn get_cache_stats(&self) -> Result<CacheStats, StreamDbError>;
+    fn get_stream(&self, path: &str) -> Result<Box<dyn Iterator<Item = Result<Vec<u8>, StreamDbError>> + Send + Sync>, StreamDbError>;
+    fn get_async(&self, path: &str) -> Box<dyn Future<Output = Result<Vec<u8>, StreamDbError>> + Send + Sync>;
+    fn begin_transaction(&mut self) -> Result<(), StreamDbError>;
+    fn commit_transaction(&mut self) -> Result<(), StreamDbError>;
+    fn rollback_transaction(&mut self) -> Result<(), StreamDbError>;
+    fn begin_async_transaction(&mut self) -> Box<dyn Future<Output = Result<(), StreamDbError>> + Send + Sync>;
+    fn commit_async_transaction(&mut self) -> Box<dyn Future<Output = Result<(), StreamDbError>> + Send + Sync>;
+    fn rollback_async_transaction(&mut self) -> Box<dyn Future<Output = Result<(), StreamDbError>> + Send + Sync>;
+}
 
 pub struct StreamDb {
     backend: Arc<dyn DatabaseBackend + Send + Sync>,
@@ -132,7 +205,11 @@ impl Database for StreamDb {
 
     fn unbind_path(&mut self, id: Uuid, path: &str) -> Result<(), StreamDbError> {
         info!("Unbinding path {} from ID: {}", path, id);
-        self.backend.unbind_path(id, path)?;
+        let mut trie = self.backend.path_trie.write();
+        let reversed = FileBackend::reverse_path(path);
+        if let Some(new_trie) = trie.remove(&reversed) {
+            *trie = new_trie;
+        }
         self.path_cache.lock().pop(path);
         Ok(())
     }
@@ -149,8 +226,7 @@ impl Database for StreamDb {
 
     fn flush(&self) -> Result<(), StreamDbError> {
         info!("Flushing database");
-        self.backend.flush()?;
-        Ok(())
+        self.backend.flush()
     }
 
     fn calculate_statistics(&self) -> Result<(i64, i64), StreamDbError> {
@@ -179,7 +255,7 @@ impl Database for StreamDb {
             current_file.seek(SeekFrom::Start(0)).map_err(StreamDbError::Io)?;
             std::io::copy(&mut *current_file, &mut new_file).map_err(StreamDbError::Io)?;
             new_file.flush().map_err(StreamDbError::Io)?;
-            Ok(StreamDb::open_with_config(new_path, new_config)?)
+            StreamDb::open_with_config(new_path, new_config)
         } else {
             Err(StreamDbError::InvalidInput("Snapshot only supported for file backend".to_string()))
         }
@@ -220,18 +296,24 @@ impl Database for StreamDb {
         self.backend.rollback_transaction()
     }
 
-    async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        info!("Beginning async transaction");
-        self.backend.begin_async_transaction().await
+    fn begin_async_transaction(&mut self) -> Box<dyn Future<Output = Result<(), StreamDbError>> + Send + Sync> {
+        let backend = self.backend.clone();
+        Box::new(async move {
+            backend.begin_async_transaction().await
+        })
     }
 
-    async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        info!("Committing async transaction");
-        self.backend.commit_async_transaction().await
+    fn commit_async_transaction(&mut self) -> Box<dyn Future<Output = Result<(), StreamDbError>> + Send + Sync> {
+        let backend = self.backend.clone();
+        Box::new(async move {
+            backend.commit_async_transaction().await
+        })
     }
 
-    async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        info!("Rolling back async transaction");
-        self.backend.rollback_async_transaction().await
+    fn rollback_async_transaction(&mut self) -> Box<dyn Future<Output = Result<(), StreamDbError>> + Send + Sync> {
+        let backend = self.backend.clone();
+        Box::new(async move {
+            backend.rollback_async_transaction().await
+        })
     }
 }

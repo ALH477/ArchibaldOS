@@ -21,7 +21,7 @@ use crc::Crc as CrcLib;
 use crc::CRC_32_ISO_HDLC;
 use lru::LruCache;
 use snappy;
-use okaywal::WriteAheadLog;
+use okaywal::{WriteAheadLog, EntryId};
 #[cfg(feature = "encryption")]
 use ring::aead::{Aad, LessSafeKey, Nonce, AES_256_GCM, NONCE_LEN, TAG_LEN, UnboundKey};
 use tokio::sync::Mutex as TokioMutex;
@@ -103,6 +103,9 @@ pub trait DatabaseBackend: Send + Sync + Any {
     fn begin_transaction(&mut self) -> Result<(), StreamDbError>;
     fn commit_transaction(&mut self) -> Result<(), StreamDbError>;
     fn rollback_transaction(&mut self) -> Result<(), StreamDbError>;
+    async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError>;
+    async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError>;
+    async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError>;
 }
 
 pub struct MemoryBackend {
@@ -135,34 +138,6 @@ impl MemoryBackend {
         if path.is_empty() || path.contains('\0') || path.contains("//") || path.len() > 1024 {
             return Err(StreamDbError::InvalidInput("Invalid path: empty, contains null, double slashes, or too long".to_string()));
         }
-        Ok(())
-    }
-
-    async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        let mut tx = self.transaction.lock().await;
-        if tx.is_some() {
-            return Err(StreamDbError::TransactionError("Transaction already in progress".to_string()));
-        }
-        *tx = Some(HashMap::new());
-        Ok(())
-    }
-
-    async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        let mut tx = self.transaction.lock().await;
-        if let Some(tx_data) = tx.take() {
-            let mut documents = self.documents.lock();
-            for (id, data) in tx_data {
-                documents.insert(id, data);
-            }
-            self.wal.checkpoint_active().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
-            Ok(())
-        } else {
-            Err(StreamDbError::TransactionError("No transaction in progress".to_string()))
-        }
-    }
-
-    async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        self.transaction.lock().await.take();
         Ok(())
     }
 }
@@ -220,11 +195,11 @@ impl DatabaseBackend for MemoryBackend {
         let mut tx = self.transaction.blocking_lock();
         let mut trie = self.path_trie.write();
         if let Some(_) = *tx {
-            self.wal.append(&serialize(&("bind", id, path.as_bytes().to_vec()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+            self.wal.append(&serialize(&("bind", id, path.to_string().into_bytes()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         } else {
             *trie = trie.insert(&reversed, id);
             self.id_to_paths.lock().entry(id).or_insert(vec![]).push(path.to_string());
-            self.wal.append(&serialize(&("bind", id, path.as_bytes().to_vec()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+            self.wal.append(&serialize(&("bind", id, path.to_string().into_bytes()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         }
         Ok(id)
     }
@@ -270,7 +245,7 @@ impl DatabaseBackend for MemoryBackend {
         let mut trie = self.path_trie.write();
         if let Some(_) = *tx {
             for path in paths {
-                self.wal.append(&serialize(&("unbind", id, path.as_bytes().to_vec()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+                self.wal.append(&serialize(&("unbind", id, path.into_bytes()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
             }
         } else {
             for path in paths {
@@ -278,7 +253,7 @@ impl DatabaseBackend for MemoryBackend {
                 if let Some(new_trie) = trie.remove(&reversed) {
                     *trie = new_trie;
                 }
-                self.wal.append(&serialize(&("unbind", id, path.as_bytes().to_vec()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+                self.wal.append(&serialize(&("unbind", id, path.into_bytes()))?).map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
             }
         }
         Ok(())
@@ -302,7 +277,7 @@ impl DatabaseBackend for MemoryBackend {
     }
 
     fn flush(&self) -> Result<(), StreamDbError> {
-        self.wal.checkpoint_active().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+        self.wal.checkpoint().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
@@ -330,7 +305,7 @@ impl DatabaseBackend for MemoryBackend {
             for (id, data) in tx_data {
                 documents.insert(id, data);
             }
-            self.wal.checkpoint_active().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+            self.wal.checkpoint().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
             Ok(())
         } else {
             Err(StreamDbError::TransactionError("No transaction in progress".to_string()))
@@ -339,6 +314,34 @@ impl DatabaseBackend for MemoryBackend {
 
     fn rollback_transaction(&mut self) -> Result<(), StreamDbError> {
         self.transaction.blocking_lock().take();
+        Ok(())
+    }
+
+    async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        let mut tx = self.transaction.lock().await;
+        if tx.is_some() {
+            return Err(StreamDbError::TransactionError("Transaction already in progress".to_string()));
+        }
+        *tx = Some(HashMap::new());
+        Ok(())
+    }
+
+    async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        let mut tx = self.transaction.lock().await;
+        if let Some(tx_data) = tx.take() {
+            let mut documents = self.documents.lock();
+            for (id, data) in tx_data {
+                documents.insert(id, data);
+            }
+            self.wal.checkpoint().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+            Ok(())
+        } else {
+            Err(StreamDbError::TransactionError("No transaction in progress".to_string()))
+        }
+    }
+
+    async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        self.transaction.lock().await.take();
         Ok(())
     }
 }
@@ -446,27 +449,16 @@ impl FileBackend {
         Ok(backend)
     }
 
-    fn reverse_path(path: &str) -> Vec<u8> {
-        path.chars().rev().map(|c| c as u8).collect()
-    }
-
-    fn validate_path(&self, path: &str) -> Result<(), StreamDbError> {
-        if path.is_empty() || path.contains('\0') || path.contains("//") || path.len() > 1024 {
-            return Err(StreamDbError::InvalidInput("Invalid path: empty, contains null, double slashes, or too long".to_string()));
-        }
-        Ok(())
-    }
-
     fn write_header(file: &mut File, header: &DatabaseHeader, config: &Config) -> Result<(), StreamDbError> {
         file.seek(SeekFrom::Start(0)).map_err(StreamDbError::Io)?;
         let mut writer = BufWriter::new(file);
         writer.write_all(&header.magic).map_err(StreamDbError::Io)?;
-        writer.write_i64<LittleEndian>(header.index_root.page_id).map_err(StreamDbError::Io)?;
-        writer.write_i32<LittleEndian>(header.index_root.version).map_err(StreamDbError::Io)?;
-        writer.write_i64<LittleEndian>(header.path_lookup_root.page_id).map_err(StreamDbError::Io)?;
-        writer.write_i32<LittleEndian>(header.path_lookup_root.version).map_err(StreamDbError::Io)?;
-        writer.write_i64<LittleEndian>(header.free_list_root.page_id).map_err(StreamDbError::Io)?;
-        writer.write_i32<LittleEndian>(header.free_list_root.version).map_err(StreamDbError::Io)?;
+        writer.write_i64::<LittleEndian>(header.index_root.page_id).map_err(StreamDbError::Io)?;
+        writer.write_i32::<LittleEndian>(header.index_root.version).map_err(StreamDbError::Io)?;
+        writer.write_i64::<LittleEndian>(header.path_lookup_root.page_id).map_err(StreamDbError::Io)?;
+        writer.write_i32::<LittleEndian>(header.path_lookup_root.version).map_err(StreamDbError::Io)?;
+        writer.write_i64::<LittleEndian>(header.free_list_root.page_id).map_err(StreamDbError::Io)?;
+        writer.write_i32::<LittleEndian>(header.free_list_root.version).map_err(StreamDbError::Io)?;
         writer.flush().map_err(StreamDbError::Io)?;
         Ok(())
     }
@@ -477,16 +469,16 @@ impl FileBackend {
         let mut magic = [0u8; 8];
         reader.read_exact(&mut magic).map_err(StreamDbError::Io)?;
         let index_root = VersionedLink {
-            page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+            page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
         };
         let path_lookup_root = VersionedLink {
-            page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+            page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
         };
         let free_list_root = VersionedLink {
-            page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+            page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
         };
         Ok(DatabaseHeader {
             magic,
@@ -574,12 +566,12 @@ impl FileBackend {
         if page_id < 0 || page_id >= self.config.max_pages {
             return Err(StreamDbError::InvalidInput(format!("Invalid page ID: {}", page_id)));
         }
-        let compressed = if self.config.use_compression {
+        let mut compressed = if self.config.use_compression {
             snappy::compress(data)
         } else {
             data.to_vec()
         };
-        let mut final_data = compressed;
+        let mut final_data = compressed.clone();
         #[cfg(feature = "encryption")]
         if let Some(key) = &self.aead_key {
             let nonce = Nonce::try_assume_unique_for_key(&Self::derive_nonce(page_id))
@@ -635,12 +627,12 @@ impl FileBackend {
         let offset = page_id as u64 * self.config.page_size;
         let mut buffer = Vec::new();
         let mut writer = BufWriter::new(&mut buffer);
-        writer.write_u32<LittleEndian>(header.crc).map_err(StreamDbError::Io)?;
-        writer.write_i32<LittleEndian>(header.version).map_err(StreamDbError::Io)?;
-        writer.write_i64<LittleEndian>(header.prev_page_id).map_err(StreamDbError::Io)?;
-        writer.write_i64<LittleEndian>(header.next_page_id).map_err(StreamDbError::Io)?;
+        writer.write_u32::<LittleEndian>(header.crc).map_err(StreamDbError::Io)?;
+        writer.write_i32::<LittleEndian>(header.version).map_err(StreamDbError::Io)?;
+        writer.write_i64::<LittleEndian>(header.prev_page_id).map_err(StreamDbError::Io)?;
+        writer.write_i64::<LittleEndian>(header.next_page_id).map_err(StreamDbError::Io)?;
         writer.write_u8(header.flags).map_err(StreamDbError::Io)?;
-        writer.write_i32<LittleEndian>(header.data_length).map_err(StreamDbError::Io)?;
+        writer.write_i32::<LittleEndian>(header.data_length).map_err(StreamDbError::Io)?;
         writer.write_all(&header.padding).map_err(StreamDbError::Io)?;
         writer.flush().map_err(StreamDbError::Io)?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -687,12 +679,12 @@ impl FileBackend {
         }
         let mut reader = Cursor::new(buffer);
         Ok(PageHeader {
-            crc: reader.read_u32<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
-            prev_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
-            next_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+            crc: reader.read_u32::<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+            prev_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+            next_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
             flags: reader.read_u8().map_err(StreamDbError::Io)?,
-            data_length: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+            data_length: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
             padding: [0; 3],
         })
     }
@@ -762,11 +754,11 @@ impl FileBackend {
     fn read_free_list_page(&self, page_id: i64) -> Result<FreeListPage, StreamDbError> {
         let data = self.read_raw_page(page_id)?;
         let mut reader = Cursor::new(&*data);
-        let next_free_list_page = reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?;
-        let used_entries = reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?;
+        let next_free_list_page = reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?;
+        let used_entries = reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?;
         let mut free_page_ids = Vec::with_capacity(used_entries as usize);
         for _ in 0..used_entries {
-            free_page_ids.push(reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?);
+            free_page_ids.push(reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?);
         }
         Ok(FreeListPage {
             next_free_list_page,
@@ -777,10 +769,10 @@ impl FileBackend {
 
     fn write_free_list_page(&self, page_id: i64, page: &FreeListPage) -> Result<(), StreamDbError> {
         let mut buffer = Vec::new();
-        buffer.write_i64<LittleEndian>(page.next_free_list_page).map_err(StreamDbError::Io)?;
-        buffer.write_i32<LittleEndian>(page.used_entries).map_err(StreamDbError::Io)?;
+        buffer.write_i64::<LittleEndian>(page.next_free_list_page).map_err(StreamDbError::Io)?;
+        buffer.write_i32::<LittleEndian>(page.used_entries).map_err(StreamDbError::Io)?;
         for &id in &page.free_page_ids {
-            buffer.write_i64<LittleEndian>(id).map_err(StreamDbError::Io)?;
+            buffer.write_i64::<LittleEndian>(id).map_err(StreamDbError::Io)?;
         }
         let header = PageHeader {
             crc: self.compute_crc(&buffer),
@@ -925,8 +917,8 @@ impl FileBackend {
                         };
                         documents.insert(id, document);
                         let mut old_versions = self.old_versions.lock();
-                        if let Some(versions) = old_versions.get_mut(&id) {
-                            versions.push((version - 1, first_page_id));
+                        if let Some(old) = old_versions.get(&id) {
+                            old_versions.get_mut(&id).unwrap().push((version - 1, old[0].1));
                         } else {
                             old_versions.insert(id, vec![(version - 1, first_page_id)]);
                         }
@@ -937,7 +929,7 @@ impl FileBackend {
                     documents.remove(&id);
                     id_to_paths.remove(&id);
                     for path in paths {
-                        let reversed = Self::reverse_path(&path);
+                        let reversed = MemoryBackend::reverse_path(&path);
                         if let Some(new_trie) = trie.remove(&reversed) {
                             *trie = new_trie;
                         }
@@ -945,14 +937,14 @@ impl FileBackend {
                 }
                 "bind" => {
                     if let Ok(path) = String::from_utf8(data) {
-                        let reversed = Self::reverse_path(&path);
+                        let reversed = MemoryBackend::reverse_path(&path);
                         *trie = trie.insert(&reversed, id);
                         id_to_paths.entry(id).or_insert(vec![]).push(path);
                     }
                 }
                 "unbind" => {
                     if let Ok(path) = String::from_utf8(data) {
-                        let reversed = Self::reverse_path(&path);
+                        let reversed = MemoryBackend::reverse_path(&path);
                         if let Some(new_trie) = trie.remove(&reversed) {
                             *trie = new_trie;
                         }
@@ -982,18 +974,6 @@ impl FileBackend {
                 }
             }
         }
-        Ok(())
-    }
-
-    async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        Ok(())
-    }
-
-    async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        Ok(())
-    }
-
-    async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError> {
         Ok(())
     }
 }
@@ -1046,8 +1026,8 @@ impl DatabaseBackend for FileBackend {
         let mut index = self.document_index.lock();
         index.insert(id, document);
         let mut old_versions = self.old_versions.lock();
-        if let Some(versions) = old_versions.get_mut(&id) {
-            versions.push((version - 1, first_page_id));
+        if let Some(old) = old_versions.get(&id).cloned() {
+            old_versions.get_mut(&id).unwrap().push((version - 1, old[0].1));
         } else {
             old_versions.insert(id, vec![(version - 1, first_page_id)]);
         }
@@ -1102,7 +1082,7 @@ impl DatabaseBackend for FileBackend {
         }
         document.paths.push(path.to_string());
         index.insert(id, document);
-        let reversed = Self::reverse_path(path);
+        let reversed = MemoryBackend::reverse_path(path);
         let mut trie = self.path_trie.write();
         *trie = trie.insert(&reversed, id);
         self.id_to_paths.lock().entry(id).or_insert(vec![]).push(path.to_string());
@@ -1113,7 +1093,7 @@ impl DatabaseBackend for FileBackend {
     fn get_document_id_by_path(&self, path: &str) -> Result<Uuid, StreamDbError> {
         self.validate_path(path)?;
         debug!("Getting ID for path: {}", path);
-        let reversed = Self::reverse_path(path);
+        let reversed = MemoryBackend::reverse_path(path);
         let trie = self.path_trie.read();
         trie.get(&reversed).ok_or(StreamDbError::NotFound(format!("Path not found: {}", path)))
     }
@@ -1121,7 +1101,7 @@ impl DatabaseBackend for FileBackend {
     fn search_paths(&self, prefix: &str) -> Result<Vec<String>, StreamDbError> {
         self.validate_path(prefix)?;
         debug!("Searching paths with prefix: {}", prefix);
-        let reversed_prefix = Self::reverse_path(prefix);
+        let reversed_prefix = MemoryBackend::reverse_path(prefix);
         let trie = self.path_trie.read();
         let mut results = vec![];
         trie.search(&reversed_prefix, &mut results, String::new());
@@ -1166,7 +1146,7 @@ impl DatabaseBackend for FileBackend {
         let paths = self.id_to_paths.lock().remove(&id).unwrap_or(vec![]);
         let mut trie = self.path_trie.write();
         for path in paths {
-            let reversed = Self::reverse_path(&path);
+            let reversed = MemoryBackend::reverse_path(&path);
             if let Some(new_trie) = trie.remove(&reversed) {
                 *trie = new_trie;
             }
@@ -1219,12 +1199,12 @@ impl DatabaseBackend for FileBackend {
             }
             let mut reader = Cursor::new(buffer);
             let header = PageHeader {
-                crc: reader.read_u32<LittleEndian>().map_err(StreamDbError::Io)?,
-                version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
-                prev_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
-                next_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+                crc: reader.read_u32::<LittleEndian>().map_err(StreamDbError::Io)?,
+                version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+                prev_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+                next_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
                 flags: reader.read_u8().map_err(StreamDbError::Io)?,
-                data_length: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+                data_length: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
                 padding: [0; 3],
             };
             let data_length = header.data_length as usize;
@@ -1276,7 +1256,7 @@ impl DatabaseBackend for FileBackend {
     }
 
     fn flush(&self) -> Result<(), StreamDbError> {
-        self.wal.checkpoint_active().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+        self.wal.checkpoint().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
@@ -1301,4 +1281,16 @@ impl DatabaseBackend for FileBackend {
     fn rollback_transaction(&mut self) -> Result<(), StreamDbError> {
         Ok(())
     }
-                }
+
+    async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        Ok(())
+    }
+
+    async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        Ok(())
+    }
+
+    async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        Ok(())
+    }
+    }
