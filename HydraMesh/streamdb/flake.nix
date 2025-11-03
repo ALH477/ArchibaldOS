@@ -26,7 +26,7 @@
           inherit src;
           pname = "streamdb";
           version = "0.1.0";
-          cargoLock = { lockFile = ./Cargo.lock; };
+          cargoLock = ./Cargo.lock;  # Changed from set to direct path
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
