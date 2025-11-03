@@ -26,9 +26,10 @@
           inherit src;
           pname = "streamdb";
           version = "0.1.0";
-          cargoLock = ./Cargo.lock;  # Direct path to lockfile
-          nativeBuildInputs = with pkgs; [ automake autoconf libtool pkg-config m4 ];  # Added m4 as precaution for autotools
-          buildInputs = with pkgs; [ snappy ];  # Use system snappy to avoid building from source
+          cargoLock = ./Cargo.lock;
+          nativeBuildInputs = with pkgs; [ pkg-config automake autoconf libtool m4 ];  # pkg-config for detection
+          buildInputs = with pkgs; [ snappy ];
+          PKG_CONFIG_PATH = "${pkgs.snappy.dev}/lib/pkgconfig";  # Ensure pkg-config finds libsnappy
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
