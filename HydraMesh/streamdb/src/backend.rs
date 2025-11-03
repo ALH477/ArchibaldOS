@@ -1085,4 +1085,9 @@ impl DatabaseBackend for FileBackend {
         Ok(results)
     }
 
-    fn list_paths_for_document(&self, id: Uuid) -> Result<Vec
+fn list_paths_for_document(&self, id: Uuid) -> Result<Vec<String>, StreamDbError> {
+    // Existing function body (add if missing, based on context)...
+    debug!("Listing paths for document ID: {}", id);
+    let paths = self.id_to_paths.lock().get(&id).cloned().unwrap_or_default();
+    Ok(paths)
+}
