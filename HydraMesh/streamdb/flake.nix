@@ -14,7 +14,7 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
 
-        rustToolchain = pkgs.rust-bin.stable."1.75".default.override {
+        rustToolchain = pkgs.rust-bin.stable."1.75.0".default.override {
           extensions = [ "rust-src" "rust-analyzer" ];
         };
 
@@ -26,7 +26,7 @@
           inherit src;
           pname = "streamdb";
           version = "0.1.0";
-          cargoLock = ./Cargo.lock;  # Changed from set to direct path
+          cargoLock = ./Cargo.lock;  # Direct path to lockfile
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
