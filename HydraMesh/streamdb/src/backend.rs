@@ -461,12 +461,12 @@ impl FileBackend {
         file.seek(SeekFrom::Start(0)).map_err(StreamDbError::Io)?;
         let mut writer = BufWriter::new(file);
         writer.write_all(&header.magic).map_err(StreamDbError::Io)?;
-        writer.write_i64::<LittleEndian>(header.index_root.page_id).map_err(StreamDbError::Io)?;
-        writer.write_i32::<LittleEndian>(header.index_root.version).map_err(StreamDbError::Io)?;
-        writer.write_i64::<LittleEndian>(header.path_lookup_root.page_id).map_err(StreamDbError::Io)?;
-        writer.write_i32::<LittleEndian>(header.path_lookup_root.version).map_err(StreamDbError::Io)?;
-        writer.write_i64::<LittleEndian>(header.free_list_root.page_id).map_err(StreamDbError::Io)?;
-        writer.write_i32::<LittleEndian>(header.free_list_root.version).map_err(StreamDbError::Io)?;
+        writer.write_i64<LittleEndian>(header.index_root.page_id).map_err(StreamDbError::Io)?;
+        writer.write_i32<LittleEndian>(header.index_root.version).map_err(StreamDbError::Io)?;
+        writer.write_i64<LittleEndian>(header.path_lookup_root.page_id).map_err(StreamDbError::Io)?;
+        writer.write_i32<LittleEndian>(header.path_lookup_root.version).map_err(StreamDbError::Io)?;
+        writer.write_i64<LittleEndian>(header.free_list_root.page_id).map_err(StreamDbError::Io)?;
+        writer.write_i32<LittleEndian>(header.free_list_root.version).map_err(StreamDbError::Io)?;
         writer.flush().map_err(StreamDbError::Io)?;
         Ok(())
     }
@@ -477,16 +477,16 @@ impl FileBackend {
         let mut magic = [0u8; 8];
         reader.read_exact(&mut magic).map_err(StreamDbError::Io)?;
         let index_root = VersionedLink {
-            page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+            page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
         };
         let path_lookup_root = VersionedLink {
-            page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+            page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
         };
         let free_list_root = VersionedLink {
-            page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+            page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
         };
         Ok(DatabaseHeader {
             magic,
@@ -635,12 +635,12 @@ impl FileBackend {
         let offset = page_id as u64 * self.config.page_size;
         let mut buffer = Vec::new();
         let mut writer = BufWriter::new(&mut buffer);
-        writer.write_u32::<LittleEndian>(header.crc).map_err(StreamDbError::Io)?;
-        writer.write_i32::<LittleEndian>(header.version).map_err(StreamDbError::Io)?;
-        writer.write_i64::<LittleEndian>(header.prev_page_id).map_err(StreamDbError::Io)?;
-        writer.write_i64::<LittleEndian>(header.next_page_id).map_err(StreamDbError::Io)?;
+        writer.write_u32<LittleEndian>(header.crc).map_err(StreamDbError::Io)?;
+        writer.write_i32<LittleEndian>(header.version).map_err(StreamDbError::Io)?;
+        writer.write_i64<LittleEndian>(header.prev_page_id).map_err(StreamDbError::Io)?;
+        writer.write_i64<LittleEndian>(header.next_page_id).map_err(StreamDbError::Io)?;
         writer.write_u8(header.flags).map_err(StreamDbError::Io)?;
-        writer.write_i32::<LittleEndian>(header.data_length).map_err(StreamDbError::Io)?;
+        writer.write_i32<LittleEndian>(header.data_length).map_err(StreamDbError::Io)?;
         writer.write_all(&header.padding).map_err(StreamDbError::Io)?;
         writer.flush().map_err(StreamDbError::Io)?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -687,12 +687,12 @@ impl FileBackend {
         }
         let mut reader = Cursor::new(buffer);
         Ok(PageHeader {
-            crc: reader.read_u32::<LittleEndian>().map_err(StreamDbError::Io)?,
-            version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
-            prev_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
-            next_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+            crc: reader.read_u32<LittleEndian>().map_err(StreamDbError::Io)?,
+            version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+            prev_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+            next_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
             flags: reader.read_u8().map_err(StreamDbError::Io)?,
-            data_length: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+            data_length: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
             padding: [0; 3],
         })
     }
@@ -762,11 +762,11 @@ impl FileBackend {
     fn read_free_list_page(&self, page_id: i64) -> Result<FreeListPage, StreamDbError> {
         let data = self.read_raw_page(page_id)?;
         let mut reader = Cursor::new(&*data);
-        let next_free_list_page = reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?;
-        let used_entries = reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?;
+        let next_free_list_page = reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?;
+        let used_entries = reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?;
         let mut free_page_ids = Vec::with_capacity(used_entries as usize);
         for _ in 0..used_entries {
-            free_page_ids.push(reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?);
+            free_page_ids.push(reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?);
         }
         Ok(FreeListPage {
             next_free_list_page,
@@ -777,10 +777,10 @@ impl FileBackend {
 
     fn write_free_list_page(&self, page_id: i64, page: &FreeListPage) -> Result<(), StreamDbError> {
         let mut buffer = Vec::new();
-        buffer.write_i64::<LittleEndian>(page.next_free_list_page).map_err(StreamDbError::Io)?;
-        buffer.write_i32::<LittleEndian>(page.used_entries).map_err(StreamDbError::Io)?;
+        buffer.write_i64<LittleEndian>(page.next_free_list_page).map_err(StreamDbError::Io)?;
+        buffer.write_i32<LittleEndian>(page.used_entries).map_err(StreamDbError::Io)?;
         for &id in &page.free_page_ids {
-            buffer.write_i64::<LittleEndian>(id).map_err(StreamDbError::Io)?;
+            buffer.write_i64<LittleEndian>(id).map_err(StreamDbError::Io)?;
         }
         let header = PageHeader {
             crc: self.compute_crc(&buffer),
@@ -1219,12 +1219,12 @@ impl DatabaseBackend for FileBackend {
             }
             let mut reader = Cursor::new(buffer);
             let header = PageHeader {
-                crc: reader.read_u32::<LittleEndian>().map_err(StreamDbError::Io)?,
-                version: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
-                prev_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
-                next_page_id: reader.read_i64::<LittleEndian>().map_err(StreamDbError::Io)?,
+                crc: reader.read_u32<LittleEndian>().map_err(StreamDbError::Io)?,
+                version: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
+                prev_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
+                next_page_id: reader.read_i64<LittleEndian>().map_err(StreamDbError::Io)?,
                 flags: reader.read_u8().map_err(StreamDbError::Io)?,
-                data_length: reader.read_i32::<LittleEndian>().map_err(StreamDbError::Io)?,
+                data_length: reader.read_i32<LittleEndian>().map_err(StreamDbError::Io)?,
                 padding: [0; 3],
             };
             let data_length = header.data_length as usize;
@@ -1301,4 +1301,4 @@ impl DatabaseBackend for FileBackend {
     fn rollback_transaction(&mut self) -> Result<(), StreamDbError> {
         Ok(())
     }
-            }
+                }
