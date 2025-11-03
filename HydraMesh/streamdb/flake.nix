@@ -27,7 +27,8 @@
           pname = "streamdb";
           version = "0.1.0";
           cargoLock = ./Cargo.lock;  # Direct path to lockfile
-          nativeBuildInputs = with pkgs; [ automake autoconf libtool pkg-config ];  # Added for snappy-sys build
+          nativeBuildInputs = with pkgs; [ automake autoconf libtool pkg-config m4 ];  # Added m4 as precaution for autotools
+          buildInputs = with pkgs; [ snappy ];  # Use system snappy to avoid building from source
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
