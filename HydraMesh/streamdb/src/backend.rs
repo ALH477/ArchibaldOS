@@ -210,6 +210,7 @@ struct MemoryBackend {
     id_to_paths: Mutex<HashMap<Uuid, Vec<String>>>,
     data: Mutex<HashMap<Uuid, Vec<u8>>>,
     wal: WriteAheadLog,
+    quick_mode: AtomicBool,
 }
 
 impl MemoryBackend {
@@ -217,12 +218,13 @@ impl MemoryBackend {
         let wal = WriteAheadLog::recover(&config.wal_path)
             .map_err(|e| StreamDbError::TransactionError(e.to_string()))?
             .unwrap_or_else(|| WriteAheadLog::open(&config.wal_path).expect("Failed to open WAL"));
-        let backend = MemoryBackend {
+        let mut backend = MemoryBackend {
             path_trie: PlRwLock::new(TrieNode::new()),
             document_index: Mutex::new(HashMap::new()),
             id_to_paths: Mutex::new(HashMap::new()),
             data: Mutex::new(HashMap::new()),
             wal,
+            quick_mode: AtomicBool::new(false),
         };
         backend.recover_from_wal()?;
         Ok(backend)
@@ -232,7 +234,7 @@ impl MemoryBackend {
         path.chars().rev().collect()
     }
 
-    fn recover_from_wal(&self) -> Result<(), StreamDbError> {
+    fn recover_from_wal(&mut self) -> Result<(), StreamDbError> {
         let mut entries = self.wal.entries();
         while let Some(entry) = entries.next().map_err(|e| StreamDbError::TransactionError(e.to_string()))? {
             let data = entry.data();
@@ -399,33 +401,37 @@ impl DatabaseBackend for MemoryBackend {
         Ok((total, 0)) // MemoryBackend has no free pages
     }
 
-    fn set_quick_mode(&mut self, _enabled: bool) {
-        // No-op for MemoryBackend
+    fn set_quick_mode(&mut self, enabled: bool) {
+        self.quick_mode.store(enabled, Ordering::Relaxed);
     }
 
     fn begin_transaction(&mut self) -> Result<(), StreamDbError> {
+        self.wal.begin().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
     fn commit_transaction(&mut self) -> Result<(), StreamDbError> {
-        self.wal.checkpoint().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+        self.wal.commit().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
     fn rollback_transaction(&mut self) -> Result<(), StreamDbError> {
+        self.wal.rollback().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
     async fn begin_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        self.wal.begin().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
     async fn commit_async_transaction(&mut self) -> Result<(), StreamDbError> {
-        self.wal.checkpoint().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
+        self.wal.commit().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
     async fn rollback_async_transaction(&mut self) -> Result<(), StreamDbError> {
+        self.wal.rollback().map_err(|e| StreamDbError::TransactionError(e.to_string()))?;
         Ok(())
     }
 
@@ -561,7 +567,7 @@ impl FileBackend {
         file.write_i32::<LittleEndian>(self.header.index_root.version).map_err(StreamDbError::Io)?;
         file.write_i64::<LittleEndian>(self.header.path_lookup_root.page_id).map_err(StreamDbError::Io)?;
         file.write_i32::<LittleEndian>(self.header.path_lookup_root.version).map_err(StreamDbError::Io)?;
-        file.write_i64::<Little grues::<LittleEndian>(self.header.free_list_root.page_id).map_err(StreamDbError::Io)?;
+        file.write_i64::<LittleEndian>(self.header.free_list_root.page_id).map_err(StreamDbError::Io)?;
         file.write_i32::<LittleEndian>(self.header.free_list_root.version).map_err(StreamDbError::Io)?;
         file.flush().map_err(StreamDbError::Io)?;
         Ok(())
@@ -615,6 +621,7 @@ impl FileBackend {
         let mut data = vec![0u8; data_length];
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(mmap) = self.mmap.read().as_ref() {
+            // Fixed: removed mut (line 804)
             let start = offset_data as usize;
             if start + data_length <= mmap.len() {
                 data.copy_from_slice(&mmap[start..start + data_length]);
@@ -729,26 +736,37 @@ impl FileBackend {
     }
 
     fn allocate_page(&mut self) -> Result<i64, StreamDbError> {
-        let free_root = self.free_list_root.lock(); // Fixed: removed mut (line 693)
-        if free_root.page_id != -1 {
-            let mut free_list = self.read_free_list_page(free_root.page_id)?;
+        // Fixed borrow checker issue: release lock early
+        let free_root_page_id;
+        let free_root_version;
+        {
+            let free_root = self.free_list_root.lock(); // Immutable borrow
+            free_root_page_id = free_root.page_id;
+            free_root_version = free_root.version;
+        } // Lock released here
+
+        if free_root_page_id != -1 {
+            let mut free_list = self.read_free_list_page(free_root_page_id)?;
             if !free_list.free_page_ids.is_empty() {
                 let page_id = free_list.free_page_ids.pop().unwrap();
                 free_list.used_entries -= 1;
-                self.write_free_list_page(free_root.page_id, &free_list)?;
+                self.write_free_list_page(free_root_page_id, &free_list)?;
                 if free_list.used_entries == 0 {
                     self.consecutive_empty_free_list.fetch_add(1, Ordering::Relaxed);
                     if self.consecutive_empty_free_list.load(Ordering::Relaxed) >= MAX_CONSECUTIVE_EMPTY_FREE_LIST {
-                        *self.free_list_root.lock() = VersionedLink {
+                        let new_free_root = VersionedLink {
                             page_id: free_list.next_free_list_page,
-                            version: free_root.version + 1,
+                            version: free_root_version + 1,
                         };
+                        *self.free_list_root.lock() = new_free_root;
+                        self.header.free_list_root = new_free_root;
                         self.write_header()?;
                     }
                 }
                 return Ok(page_id);
             }
         }
+
         self.consecutive_empty_free_list.store(0, Ordering::Relaxed);
         let mut file = self.file.blocking_lock();
         let len = file.metadata().map_err(StreamDbError::Io)?.len();
@@ -793,9 +811,16 @@ impl FileBackend {
     }
 
     fn free_page(&mut self, page_id: i64) -> Result<(), StreamDbError> {
-        let free_root = self.free_list_root.lock(); // Fixed: removed mut
-        let mut free_list = if free_root.page_id != -1 {
-            self.read_free_list_page(free_root.page_id)?
+        let free_root_page_id;
+        let free_root_version;
+        {
+            let free_root = self.free_list_root.lock(); // Fixed: removed mut
+            free_root_page_id = free_root.page_id;
+            free_root_version = free_root.version;
+        } // Lock released
+
+        let mut free_list = if free_root_page_id != -1 {
+            self.read_free_list_page(free_root_page_id)?
         } else {
             FreeListPage {
                 next_free_list_page: -1,
@@ -806,20 +831,22 @@ impl FileBackend {
         if free_list.used_entries as usize >= FREE_LIST_ENTRIES_PER_PAGE {
             let new_page_id = self.allocate_page()?;
             let new_free_list = FreeListPage {
-                next_free_list_page: free_root.page_id,
+                next_free_list_page: free_root_page_id,
                 used_entries: 1,
                 free_page_ids: vec![page_id],
             };
             self.write_free_list_page(new_page_id, &new_free_list)?;
-            *self.free_list_root.lock() = VersionedLink {
+            let new_free_root = VersionedLink {
                 page_id: new_page_id,
-                version: free_root.version + 1,
+                version: free_root_version + 1,
             };
+            *self.free_list_root.lock() = new_free_root;
+            self.header.free_list_root = new_free_root;
             self.write_header()?;
         } else {
             free_list.free_page_ids.push(page_id);
             free_list.used_entries += 1;
-            self.write_free_list_page(free_root.page_id, &free_list)?;
+            self.write_free_list_page(free_root_page_id, &free_list)?;
         }
         self.consecutive_empty_free_list.store(0, Ordering::Relaxed);
         self.page_cache.lock().remove(&page_id);
@@ -884,14 +911,14 @@ impl FileBackend {
                 }
                 "delete" => {
                     let id = deserialized.1;
-                    self.delete_document(id)?;
+                    let _ = self.delete_document(id); // Ignore errors during recovery
                 }
                 "bind" => {
                     if let Some(path_bytes) = deserialized.2 {
                         let path = String::from_utf8(path_bytes)
                             .map_err(|e| StreamDbError::InvalidData(e.to_string()))?;
                         let id = deserialized.1;
-                        self.bind_path_to_document(&path, id)?;
+                        let _ = self.bind_path_to_document(&path, id); // Ignore errors during recovery
                     }
                 }
                 _ => warn!("Unknown WAL entry type: {}", deserialized.0),
@@ -1067,4 +1094,4 @@ impl DatabaseBackend for FileBackend {
     fn as_any(&self) -> &dyn Any {
         self
     }
-        }
+}
