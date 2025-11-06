@@ -67,9 +67,19 @@
           outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Placeholder: Run the build once, it will fail and show the expected hash in the error message. Replace this with that hash.
         };
 
+        load-deps = pkgs.writeTextFile {
+          name = "load-deps.lisp";
+          text = ''
+            (load "quicklisp/setup.lisp")
+            (ql:quickload '(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))
+            (quit)
+          '';
+          destination = "/load-deps.lisp";
+        };
+
         hydramesh = pkgs.stdenv.mkDerivation {
           name = "hydramesh";
-          src = self;
+          src = ./src; # Point to ./src where hydramesh.lisp is located
 
           nativeBuildInputs = [ sbcl pkgs.makeWrapper ];
           buildInputs = [ streamdb.packages.${system}.default ];
@@ -79,7 +89,8 @@
             mkdir -p $HOME/quicklisp
             cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp --load hydramesh.lisp \
+            ${sbcl}/bin/sbcl --script ${load-deps}/load-deps.lisp
+            ${sbcl}/bin/sbcl --no-userinit --load hydramesh.lisp \
               --eval '(dcf-deploy "dcf-lisp")' \
               --quit
           '';
@@ -165,7 +176,7 @@ EOF
                 --quit
             fi
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
-            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --load hydramesh.lisp"
+            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --load src/hydramesh.lisp"
             echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.so"
           '';
         };
