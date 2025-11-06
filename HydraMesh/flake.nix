@@ -22,7 +22,7 @@
 
         sbcl = pkgs.sbcl;
 
-        quicklisp-dist = "2023-10-21";
+        quicklisp-dist = "2024-10-15";
         quicklisp-setup = pkgs.writeShellScriptBin "setup-quicklisp.sh" ''
           mkdir -p $HOME/quicklisp
           curl -O https://beta.quicklisp.org/quicklisp.lisp
@@ -41,11 +41,15 @@
           "cl-zigbee"
         ];
 
-        load-deps = pkgs.writeShellScriptBin "load-deps.lisp" ''
-          (load "~/quicklisp/setup.lisp")
-          (ql:quickload '(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))
-          (quit)
-        '';
+        load-deps = pkgs.writeTextFile {
+          name = "load-deps.lisp";
+          text = ''
+            (load "~/quicklisp/setup.lisp")
+            (ql:quickload '(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))
+            (quit)
+          '';
+          destination = "/bin/load-deps.lisp";
+        };
 
         hydramesh = pkgs.stdenv.mkDerivation {
           name = "hydramesh";
