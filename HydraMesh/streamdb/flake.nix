@@ -19,7 +19,7 @@
 
             src = ./.; # Point to local directory containing source files
 
-            buildInputs = [ pkgs.util-linux.lib ]; # For libuuid
+            buildInputs = [ pkgs.util-linux.dev ]; # For libuuid headers (uuid/uuid.h)
 
             buildPhase = ''
               $CC -c streamdb.c -o streamdb.o
@@ -36,7 +36,7 @@
             meta = with pkgs.lib; {
               description = "StreamDB - A lightweight, thread-safe embedded database using reverse trie";
               license = licenses.lgpl21Plus;
-              platforms = platforms.unix;
+              platforms = platforms.linux ++ platforms.darwin ++ platforms.windows ++ platforms.unix; # Broad platform support
               maintainers = [ "DeMoD LLC" ];
             };
           };
