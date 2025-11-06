@@ -4,9 +4,14 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    streamdb = {
+      url = "path:./streamdb";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, streamdb }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -47,6 +52,7 @@
           src = self;
 
           nativeBuildInputs = [ sbcl quicklisp-setup ];
+          buildInputs = [ streamdb.packages.${system}.default ]; # Include StreamDB library
 
           buildPhase = ''
             export HOME=$PWD
@@ -60,6 +66,10 @@
           installPhase = ''
             mkdir -p $out/bin
             cp dcf-lisp $out/bin/dcf-lisp
+            mkdir -p $out/lib
+            cp ${streamdb.packages.${system}.default}/lib/libstreamdb.a $out/lib/
+            mkdir -p $out/include
+            cp ${streamdb.packages.${system}.default}/include/libstreamdb.h $out/include/
           '';
         };
 
@@ -104,26 +114,11 @@ EOF
           fi
         '';
 
-        streamdb = pkgs.rustPlatform.buildRustPackage rec {
-          pname = "streamdb";
-          version = "0.1.0";
-          src = self + "/streamdb";
-          cargoSha256 = "sha256-placeholder-compute-with-nix-prefetch";
-          meta = with lib; {
-            description = "StreamDB for HydraMesh";
-            license = licenses.lgpl3;
-          };
-          buildPhase = "cargo build --release --lib";
-          installPhase = ''
-            mkdir -p $out/lib
-            cp target/release/libstreamdb.so $out/lib/
-          '';
-        };
-
       in {
         packages = {
           default = hydramesh;
-          inherit hydramesh toggleScript statusScript streamdb;
+          inherit hydramesh toggleScript statusScript;
+          streamdb = streamdb.packages.${system}.default;
         };
 
         devShells.default = pkgs.mkShell {
@@ -134,6 +129,7 @@ EOF
             pkgs.protobuf
             pkgs.openssl
             pkgs.zlib
+            streamdb.packages.${system}.default
           ];
 
           shellHook = ''
@@ -143,6 +139,7 @@ EOF
             fi
             echo "Quicklisp set up with dist ${quicklisp-dist}. Load deps with: sbcl --script ${load-deps}/bin/load-deps.lisp"
             echo "Load the project: sbcl --load hydramesh.lisp"
+            echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.a"
           '';
         };
       }
