@@ -67,15 +67,12 @@
           outputHash = "sha256-7NLtEW86jBC6sq8qrl9OUqb8K2cxgLMaXtnwnNDuF0E="; 
         };
 
-        load-asdf = pkgs.writeTextFile {
-          name = "load-asdf.lisp";
+        load-quicklisp = pkgs.writeTextFile {
+          name = "load-quicklisp.lisp";
           text = ''
-            (require :asdf)
-            (dolist (dir (append (directory "quicklisp/dists/quicklisp/software/*/")
-                                 (directory "quicklisp/local-projects/*/")))
-              (push dir asdf:*central-registry*))
+            (load "quicklisp/setup.lisp")
           '';
-          destination = "/load-asdf.lisp";
+          destination = "/load-quicklisp.lisp";
         };
 
         hydramesh = pkgs.stdenv.mkDerivation {
@@ -86,15 +83,18 @@
           buildInputs = [ streamdb.packages.${system}.default ];
 
           postPatch = ''
-            sed -i 's/ql:quickload/asdf:load-system/g' hydramesh.lisp
+            sed -i '/ql:quickload/d' hydramesh.lisp
           '';
 
-          buildPhase = ''
+            buildPhase = ''
             export HOME=$PWD
             mkdir -p $HOME/quicklisp
             cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
-            ${sbcl}/bin/sbcl --load ${load-asdf}/load-asdf.lisp --load hydramesh.lisp \
+            ${sbcl}/bin/sbcl --load ${load-quicklisp}/load-quicklisp.lisp \
+              --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :jsonschema))' \
+              --load hydramesh.lisp \
+              --eval '(in-package :d-lisp)' \
               --eval '(dcf-deploy "dcf-lisp")' \
               --quit
           '';
