@@ -21,6 +21,10 @@
 
             buildInputs = [ pkgs.util-linux.dev ]; # For libuuid headers (uuid/uuid.h)
 
+            postPatch = ''
+              sed -i '4i #include <stdlib.h>' libstreamdb_wrapper.c
+            '';
+
             buildPhase = ''
               $CC -c streamdb.c -o streamdb.o
               $CC -c libstreamdb_wrapper.c -o wrapper.o
@@ -30,7 +34,8 @@
             installPhase = ''
               mkdir -p $out/lib $out/include
               cp libstreamdb.a $out/lib/
-              cp libstreamdb.h $out/include/libstreamdb.h
+              cp libstreamdb_wrapper.h $out/include/libstreamdb.h
+              cp streamdb.h $out/include/streamdb.h
             '';
 
             meta = with pkgs.lib; {
@@ -41,7 +46,7 @@
             };
           };
 
-          streamdb = default;
+          streamdb = default; # Explicitly expose 'streamdb' package
         };
       });
 }
