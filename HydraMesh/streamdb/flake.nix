@@ -26,14 +26,14 @@
             '';
 
             buildPhase = ''
-              $CC -c streamdb.c -o streamdb.o
-              $CC -c libstreamdb_wrapper.c -o wrapper.o
-              ar rcs libstreamdb.a streamdb.o wrapper.o
+              $CC -fPIC -c streamdb.c -o streamdb.o
+              $CC -fPIC -c libstreamdb_wrapper.c -o wrapper.o
+              $CC -shared -o libstreamdb.so streamdb.o wrapper.o
             '';
 
             installPhase = ''
               mkdir -p $out/lib $out/include
-              cp libstreamdb.a $out/lib/
+              cp libstreamdb.so $out/lib/
               cp libstreamdb_wrapper.h $out/include/libstreamdb.h
               cp streamdb.h $out/include/streamdb.h
             '';
