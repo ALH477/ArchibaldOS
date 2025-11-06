@@ -419,7 +419,7 @@
           (ensure-reliable-handler endpoint))
         (send-udp-raw endpoint msg-bytes remote-host remote-port))))
 
-(defun ensure-reliable-handler (endpoint)
+(defun ensure-reliable-handler (endpoint))
   (unless (bt:thread-alive-p 
            (find "udp-reliable" (bt:all-threads) :key #'bt:thread-name :test #'search))
     (bt:make-thread
