@@ -64,7 +64,7 @@
 
           outputHashAlgo = "sha256";
           outputHashMode = "recursive";
-          outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Placeholder: Run the build once, it will fail and show the expected hash in the error message. Replace this with that hash.
+          outputHash = "sha256-7NLtEW86jBC6sq8qrl9OUqb8K2cxgLMaXtnwnNDuF0E="; 
         };
 
         load-deps = pkgs.writeTextFile {
