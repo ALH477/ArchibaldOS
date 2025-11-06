@@ -23,56 +23,73 @@
         sbcl = pkgs.sbcl;
 
         quicklisp-dist = "2024-10-15";
-        quicklisp-setup = pkgs.writeShellScriptBin "setup-quicklisp.sh" ''
-          mkdir -p $HOME/quicklisp
-          curl -O https://beta.quicklisp.org/quicklisp.lisp
-          ${sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp.lisp \
-            --eval '(quicklisp-quickstart:install :path "~/quicklisp/")' \
-            --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
-            --eval '(ql:quickload :ql-dist)' \
-            --quit
-        '';
 
         ql-packages = [
           "cl-protobufs" "cl-grpc" "cffi" "uuid" "cl-json" "jsonschema"
           "cl-ppcre" "cl-csv" "usocket" "bordeaux-threads" "curses"
           "log4cl" "trivial-backtrace" "cl-store" "mgl" "hunchensocket"
           "fiveam" "cl-dot" "cl-lsquic" "cl-serial" "cl-can" "cl-sctp"
-          "cl-zigbee"
+          "cl-zigbee" "flexi-streams" "ieee-floats"
         ];
 
-        load-deps = pkgs.writeTextFile {
-          name = "load-deps.lisp";
-          text = ''
-            (load "~/quicklisp/setup.lisp")
-            (ql:quickload '(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))
-            (quit)
+        quicklisp = pkgs.stdenv.mkDerivation {
+          name = "quicklisp-${quicklisp-dist}";
+          nativeBuildInputs = [ pkgs.curl sbcl pkgs.cacert ];
+          dontUnpack = true;
+
+          buildPhase = ''
+            mkdir -p quicklisp
+            curl --cacert ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt -O https://beta.quicklisp.org/quicklisp.lisp
+            sbcl --no-userinit --no-sysinit --load quicklisp.lisp \
+              --eval '(quicklisp-quickstart:install :path "quicklisp/")' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql-util:without-prompting (ql:update-client))' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql-util:without-prompting (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql:quickload :ql-dist)' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql:quickload '"'"'(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
+              --quit
           '';
-          destination = "/bin/load-deps.lisp";
+
+          installPhase = ''
+            mkdir -p $out/quicklisp
+            cp -r quicklisp/* $out/quicklisp/
+          '';
+
+          outputHashAlgo = "sha256";
+          outputHashMode = "recursive";
+          outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Placeholder: Run the build once, it will fail and show the expected hash in the error message. Replace this with that hash.
         };
 
         hydramesh = pkgs.stdenv.mkDerivation {
           name = "hydramesh";
           src = self;
 
-          nativeBuildInputs = [ sbcl quicklisp-setup ];
-          buildInputs = [ streamdb.packages.${system}.default ]; # Include StreamDB library
+          nativeBuildInputs = [ sbcl pkgs.makeWrapper ];
+          buildInputs = [ streamdb.packages.${system}.default ];
 
           buildPhase = ''
             export HOME=$PWD
-            setup-quicklisp.sh
-            ${sbcl}/bin/sbcl --script ${load-deps}/bin/load-deps.lisp
-            ${sbcl}/bin/sbcl --no-userinit --load hydramesh.lisp \
+            mkdir -p $HOME/quicklisp
+            cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
+            export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
+            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp --load hydramesh.lisp \
               --eval '(dcf-deploy "dcf-lisp")' \
               --quit
           '';
 
           installPhase = ''
-            mkdir -p $out/bin
-            cp dcf-lisp $out/bin/dcf-lisp
-            mkdir -p $out/lib
-            cp ${streamdb.packages.${system}.default}/lib/libstreamdb.a $out/lib/
-            mkdir -p $out/include
+            mkdir -p $out/bin $out/lib $out/include
+            cp dcf-lisp $out/bin/.dcf-lisp-unwrapped
+            makeWrapper $out/bin/.dcf-lisp-unwrapped $out/bin/dcf-lisp \
+              --set LD_LIBRARY_PATH $out/lib
+            cp ${streamdb.packages.${system}.default}/lib/libstreamdb.so $out/lib/
             cp ${streamdb.packages.${system}.default}/include/libstreamdb.h $out/include/
           '';
         };
@@ -128,22 +145,28 @@ EOF
         devShells.default = pkgs.mkShell {
           buildInputs = [
             sbcl
-            quicklisp-setup
             pkgs.grpc
             pkgs.protobuf
             pkgs.openssl
             pkgs.zlib
+            pkgs.cacert
             streamdb.packages.${system}.default
           ];
 
           shellHook = ''
             export HOME=$PWD
             if [ ! -d "$HOME/quicklisp" ]; then
-              setup-quicklisp.sh
+              curl --cacert ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt -O https://beta.quicklisp.org/quicklisp.lisp
+              ${sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp.lisp \
+                --eval '(quicklisp-quickstart:install :path "$HOME/quicklisp/")' \
+                --quit
+              ${sbcl}/bin/sbcl --load $HOME/quicklisp/setup.lisp \
+                --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
+                --quit
             fi
-            echo "Quicklisp set up with dist ${quicklisp-dist}. Load deps with: sbcl --script ${load-deps}/bin/load-deps.lisp"
-            echo "Load the project: sbcl --load hydramesh.lisp"
-            echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.a"
+            export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
+            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --load hydramesh.lisp"
+            echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.so"
           '';
         };
       }
