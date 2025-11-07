@@ -1,7 +1,7 @@
 # StreamDb
 
 [![License: LGPLv3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
-[![Rust Version](https://img.shields.io/badge/Rust-1.75%2B-orange)](https://www.rust-lang.org/)
+![Static Badge](https://img.shields.io/badge/C-embedded-green)
 
 ![LGPLv3](https://www.gnu.org/graphics/lgplv3-with-text-154x68.png)
 
