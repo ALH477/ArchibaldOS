@@ -77,13 +77,13 @@
 
         hydramesh = pkgs.stdenv.mkDerivation {
           name = "hydramesh";
-          src = ./src; # Point to ./src where hydramesh.lisp is located
+          src = self; # Copy the entire flake source, including .asd file
 
           nativeBuildInputs = [ sbcl pkgs.makeWrapper ];
           buildInputs = [ streamdb.packages.${system}.default ];
 
           postPatch = ''
-            sed -i '/(ql:quickload/,/))/d' hydramesh.lisp
+            sed -i '/(ql:quickload/,/))/d' src/hydramesh.lisp
           '';
 
           buildPhase = ''
@@ -92,8 +92,9 @@
             cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
             ${sbcl}/bin/sbcl --load ${load-quicklisp}/load-quicklisp.lisp \
-              --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :cl-json-schema :hydramesh))' \
-              --eval '(format t "Package: ~A~%dcf-deploy available: ~A~%" *package* (fboundp (find-symbol "DCF-DEPLOY" :hydramesh)))' \
+              --eval '(push (truename "./") asdf:*central-registry*)' \
+              --eval '(ql:quickload :hydramesh)' \
+              --eval '(format t "Current package: ~A~%dcf-deploy available: ~A~%" *package* (fboundp (find-symbol "DCF-DEPLOY" :hydramesh)))' \
               --eval '(funcall (find-symbol "DCF-DEPLOY" :hydramesh) "dcf-lisp")' \
               --quit
           '';
@@ -183,7 +184,7 @@ EOF
                 --quit
             fi
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
-            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --load src/hydramesh.lisp"
+            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --eval '(push (truename \".\") asdf:*central-registry*)' --eval '(ql:quickload :hydramesh)'"
             echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.so"
           '';
         };
