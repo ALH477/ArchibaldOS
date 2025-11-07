@@ -7,11 +7,11 @@
                :cl-ppcre :cl-csv :usocket :bordeaux-threads :curses
                :log4cl :trivial-backtrace :cl-store :mgl :hunchensocket
                :fiveam :cl-dot)
-  :components ((:file "src/d-lisp")
-               (:file "tests/main" :depends-on ("src/d-lisp")))
+  :components ((:file "src/hydramesh")
+               (:file "tests/main" :depends-on ("src/hydramesh")))
   :in-order-to ((test-op (test-op :d-lisp/tests))))
 
-(asdf:defsystem #:d-lisp/tests
-  :depends-on (:d-lisp :fiveam)
+(asdf:defsystem #:hydramesh/tests
+  :depends-on (:hydramesh :fiveam)
   :components ((:file "tests/main"))
-  :perform (test-op (o c) (symbol-call :d-lisp :run-tests)))
+  :perform (test-op (o c) (symbol-call :hydramesh :run-tests)))
