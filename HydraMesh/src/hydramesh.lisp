@@ -244,7 +244,7 @@
   (handler-case
       (with-open-file (stream file :direction :input :if-does-not-exist :error)
         (let ((config (cl-json:decode-json stream)))
-          (jsonschema:validate *config-schema* config)
+          (json-schema:validate *config-schema* config)
           (make-dcf-config
             :transport (getf config :transport "UDP")
             :host (getf config :host "0.0.0.0")
