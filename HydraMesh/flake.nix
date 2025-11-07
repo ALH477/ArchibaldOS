@@ -64,7 +64,7 @@
 
           outputHashAlgo = "sha256";
           outputHashMode = "recursive";
-          outputHash = "sha256-7NLtEW86jBC6sq8qrl9OUqb8K2cxgLMaXtnwnNDuF0E="; 
+          outputHash = "sha256-7NLtEW86jBC6sq8qrl9OUqb8K2cxgLMaXtnwnNDuF0E=";
         };
 
         load-quicklisp = pkgs.writeTextFile {
@@ -77,12 +77,14 @@
 
         hydramesh = pkgs.stdenv.mkDerivation {
           name = "hydramesh";
-          src = self; # Copy the entire flake source, including .asd file
+          src = self; # Copy the entire flake source, including hydramesh.asd
 
           nativeBuildInputs = [ sbcl pkgs.makeWrapper ];
           buildInputs = [ streamdb.packages.${system}.default ];
 
           postPatch = ''
+            sed -i 's/:jsonschema/:cl-json-schema/g' hydramesh.asd
+            sed -i 's/:d-lisp/:hydramesh/g' hydramesh.asd
             sed -i '/(ql:quickload/,/))/d' src/hydramesh.lisp
           '';
 
