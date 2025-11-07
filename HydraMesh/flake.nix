@@ -86,21 +86,24 @@
             sed -i '/(ql:quickload/,/))/d' hydramesh.lisp
           '';
 
-            buildPhase = ''
+          buildPhase = ''
             export HOME=$PWD
             mkdir -p $HOME/quicklisp
             cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
             ${sbcl}/bin/sbcl --load ${load-quicklisp}/load-quicklisp.lisp \
-              --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :cl-json-schema))' \
-              --load hydramesh.lisp \
-              --eval '(in-package :hydramesh)' \
-              --eval '(dcf-deploy "dcf-lisp")' \
+              --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :cl-json-schema :hydramesh))' \
+              --eval '(format t "Package: ~A~%dcf-deploy available: ~A~%" *package* (fboundp (find-symbol "DCF-DEPLOY" :hydramesh)))' \
+              --eval '(funcall (find-symbol "DCF-DEPLOY" :hydramesh) "dcf-lisp")' \
               --quit
           '';
 
           installPhase = ''
             mkdir -p $out/bin $out/lib $out/include
+            if [ ! -f dcf-lisp ] || [ ! -x dcf-lisp ]; then
+              echo "Error: dcf-lisp not built or not executable"
+              exit 1
+            fi
             cp dcf-lisp $out/bin/.dcf-lisp-unwrapped
             makeWrapper $out/bin/.dcf-lisp-unwrapped $out/bin/dcf-lisp \
               --set LD_LIBRARY_PATH $out/lib
