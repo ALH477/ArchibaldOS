@@ -22,7 +22,7 @@
 
         sbcl = pkgs.sbcl;
 
-        quicklisp-dist = "2024-10-15";
+        quicklisp-dist = "2025-06-22";
 
         ql-packages = [
           "cl-protobufs" "cl-grpc" "cffi" "uuid" "cl-json" "cl-json-schema"
