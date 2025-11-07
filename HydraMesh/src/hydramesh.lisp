@@ -20,7 +20,7 @@
 ;; Dependencies: Install via Quicklisp
 (ql:quickload '(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads 
                 :log4cl :trivial-backtrace :flexi-streams :fiveam
-                :ieee-floats :cl-json :jsonschema))
+                :ieee-floats :cl-json :cl-json-schema))
 
 (cffi:define-foreign-library libstreamdb
   (:unix "libstreamdb.so")
