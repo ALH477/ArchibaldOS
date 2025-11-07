@@ -83,7 +83,7 @@
           buildInputs = [ streamdb.packages.${system}.default ];
 
           postPatch = ''
-            sed -i '/ql:quickload/d' hydramesh.lisp
+            sed -i '/(ql:quickload/,/))/d' hydramesh.lisp
           '';
 
             buildPhase = ''
