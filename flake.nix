@@ -76,7 +76,7 @@
       packages = with pkgs; [
         ardour audacity fluidsynth musescore guitarix
         csound faust portaudio rtaudio supercollider qjackctl
-        surge vcvrack pd
+        surge vcvrack pd libcava 
         pcmanfm vim brave
         sbclWithPkgs
       ] ++ [
