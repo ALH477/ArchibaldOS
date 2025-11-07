@@ -1,5 +1,5 @@
 {
-  description = "Nix flake for HydraMesh (D-LISP) SDK";
+  description = "Nix flake for HydraMesh SDK";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -94,7 +94,7 @@
             ${sbcl}/bin/sbcl --load ${load-quicklisp}/load-quicklisp.lisp \
               --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :cl-json-schema))' \
               --load hydramesh.lisp \
-              --eval '(in-package :d-lisp)' \
+              --eval '(in-package :hydramesh)' \
               --eval '(dcf-deploy "dcf-lisp")' \
               --quit
           '';
