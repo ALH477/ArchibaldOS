@@ -25,7 +25,7 @@
         quicklisp-dist = "2024-10-15";
 
         ql-packages = [
-          "cl-protobufs" "cl-grpc" "cffi" "uuid" "cl-json" "jsonschema"
+          "cl-protobufs" "cl-grpc" "cffi" "uuid" "cl-json" "cl-json-schema"
           "cl-ppcre" "cl-csv" "usocket" "bordeaux-threads" "curses"
           "log4cl" "trivial-backtrace" "cl-store" "mgl" "hunchensocket"
           "fiveam" "cl-dot" "cl-lsquic" "cl-serial" "cl-can" "cl-sctp"
@@ -92,7 +92,7 @@
             cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
             ${sbcl}/bin/sbcl --load ${load-quicklisp}/load-quicklisp.lisp \
-              --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :jsonschema))' \
+              --eval '(ql:quickload '"'"'(:cffi :uuid :cl-protobufs :usocket :bordeaux-threads :log4cl :trivial-backtrace :flexi-streams :fiveam :ieee-floats :cl-json :cl-json-schema))' \
               --load hydramesh.lisp \
               --eval '(in-package :d-lisp)' \
               --eval '(dcf-deploy "dcf-lisp")' \
