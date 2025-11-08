@@ -19,7 +19,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkgs.sbcl pkgs.hydramesh-toggle pkgs.hydramesh-status pkgs.quicklisp pkgs.streamdb ];
+    environment.systemPackages = [ pkgs.sbcl pkgs.hydramesh toggleScript statusScript pkgs.quicklisp pkgs.streamdb ];
 
     environment.etc."hydramesh".source = ./HydraMesh;
 
@@ -58,15 +58,7 @@ in {
       after = [ "network.target" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        ExecStart = "${pkgs.writeShellScriptBin "hydramesh-start" ''
-          ${pkgs.sbcl}/bin/sbcl --load /etc/quicklisp/setup.lisp \
-            --load /etc/hydramesh/src/hydramesh.lisp \
-            --eval '(dolist (plugin (directory "/etc/hydramesh/plugins/*.lisp")) (load plugin))' \
-            --eval '(in-package :hydramesh)' \
-            --eval '(hydramesh-init "${cfg.configFile}" :restore-state t)' \
-            --eval '(hydramesh-start)' \
-            --non-interactive
-        ''}/bin/hydramesh-start";
+        ExecStart = "${pkgs.hydramesh}/bin/hydramesh-wrapped";
         Restart = "always";
         User = "hydramesh";
         Group = "hydramesh";
@@ -93,7 +85,7 @@ in {
       enable = true;
       profiles = [ (pkgs.writeText "apparmor-hydramesh" ''
         #include <tunables/global>
-        /usr/bin/sbcl flags=(complain) {
+        ${pkgs.hydramesh}/bin/hydramesh-wrapped flags=(complain) {
           #include <abstractions/base>
           capability dac_override,
           network tcp,
@@ -101,6 +93,7 @@ in {
           file,
           /etc/hydramesh/** r,
           /var/lib/hydramesh/** rw,
+          /etc/quicklisp/** r,
         }
       '') ];
     };
