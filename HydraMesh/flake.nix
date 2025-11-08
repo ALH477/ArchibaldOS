@@ -1,5 +1,5 @@
 {
-  description = "Nix flake for HydraMesh development environment";
+  description = "Nix flake for HydraMesh SDK";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -25,55 +25,132 @@
         quicklisp-dist = "2025-06-22";
 
         ql-packages = [
-          "cl-protobufs" "cl-grpc" "cffi" "uuid" "cl-json" "cl-json-schema"
-          "cl-ppcre" "cl-csv" "usocket" "bordeaux-threads" "curses"
-          "log4cl" "trivial-backtrace" "cl-store" "mgl" "hunchensocket"
-          "fiveam" "cl-dot" "cl-lsquic" "cl-serial" "cl-can" "cl-sctp"
-          "cl-zigbee" "flexi-streams" "ieee-floats"
+          "cffi" "uuid" "cl-protobufs" "usocket" "bordeaux-threads" "log4cl" "trivial-backtrace" "flexi-streams" "fiveam" "ieee-floats" "cl-json" "cl-json-schema"
         ];
 
         quicklisp = pkgs.stdenv.mkDerivation {
-          name = "quicklisp-2025-06-22";
-          src = ./.; # Contains quicklisp.lisp, quicklisp.lisp.asc, distinfo.txt
-          nativeBuildInputs = with pkgs; [ sbcl gnupg coreutils cacert ];
-          buildInputs = [ streamdb.packages.${system}.default ];
+          name = "quicklisp-${quicklisp-dist}";
+          nativeBuildInputs = [ pkgs.curl sbcl pkgs.cacert ];
+          dontUnpack = true;
+
           buildPhase = ''
-            echo "Verifying quicklisp.lisp integrity..."
-            echo "4a7a5c2aebe0716417047854267397e24a44d0cce096127411e9ce9ccfeb2c17  quicklisp.lisp" | sha256sum -c || { echo "Error: SHA256 mismatch for quicklisp.lisp"; exit 1; }
-            gpg --verify quicklisp.lisp.asc quicklisp.lisp || { echo "Error: PGP signature verification failed"; exit 1; }
-            if [ ! -f distinfo.txt ]; then
-              echo "Error: distinfo.txt not found in HydraMesh directory. Download from http://beta.quicklisp.org/dist/quicklisp/2025-06-22/distinfo.txt"
-              exit 1
-            fi
-            mkdir -p quicklisp/local-projects quicklisp/dists/quicklisp/installed/systems
-            cp quicklisp.lisp quicklisp/quicklisp.lisp
-            cp distinfo.txt quicklisp/distinfo.txt
-            ${sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp/quicklisp.lisp \
+            mkdir -p quicklisp
+            curl --cacert ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt -O https://beta.quicklisp.org/quicklisp.lisp
+            sbcl --no-userinit --no-sysinit --load quicklisp.lisp \
               --eval '(quicklisp-quickstart:install :path "quicklisp/")' \
-              --quit || { echo "Error: Quicklisp installation failed"; exit 1; }
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
-              --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
-              --quit || { echo "Error: Quicklisp update failed"; exit 1; }
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
-              --eval '(ql:quickload :quicklisp-slime-helper)' \
-              --quit || { echo "Error: Quicklisp SLIME helper failed"; exit 1; }
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
-              --eval '(ql:quickload (list ${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
-              --eval '(format t "Quicklisp systems: ~A~%" (directory "quicklisp/local-projects/*.asd"))' \
-              --eval '(format t "Quicklisp installed systems: ~A~%" (directory "quicklisp/dists/quicklisp/installed/systems/*.asd"))' \
-              --eval '(format t "cl-protobufs available: ~A~%" (ql-dist:find-system "cl-protobufs"))' \
-              --quit || { echo "Error: Quicklisp package loading failed"; exit 1; }
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql-util:without-prompting (ql:update-client))' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql-util:without-prompting (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql:quickload :ql-dist)' \
+              --quit
+            sbcl --load quicklisp/setup.lisp \
+              --eval '(ql:quickload '"'"'(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
+              --quit
           '';
+
           installPhase = ''
-            mkdir -p $out/etc/quicklisp
-            cp -r quicklisp/* $out/etc/quicklisp/
+            mkdir -p $out/quicklisp
+            cp -r quicklisp/* $out/quicklisp/
+          '';
+
+          outputHashAlgo = "sha256";
+          outputHashMode = "recursive";
+          outputHash = "sha256-7NLtEW86jBC6sq8qrl9OUqb8K2cxgLMaXtnwnNDuF0E="; 
+        };
+
+        load-quicklisp = pkgs.writeTextFile {
+          name = "load-quicklisp.lisp";
+          text = ''
+            (load "quicklisp/setup.lisp")
+          '';
+          destination = "/load-quicklisp.lisp";
+        };
+
+        hydramesh = pkgs.stdenv.mkDerivation {
+          name = "hydramesh";
+          src = ./src; # Point to ./src where hydramesh.lisp is located
+
+          nativeBuildInputs = [ sbcl pkgs.makeWrapper ];
+          buildInputs = [ streamdb.packages.${system}.default ];
+
+          postPatch = ''
+            sed -i '/(ql:quickload/,/))/d' hydramesh.lisp
+          '';
+
+          buildPhase = ''
+            export HOME=$PWD
+            mkdir -p $HOME/quicklisp
+            cp -r ${quicklisp}/quicklisp/* $HOME/quicklisp/
+            export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
+            ${sbcl}/bin/sbcl --load ${load-quicklisp}/load-quicklisp.lisp \
+              --eval '(ql:quickload '"'"'(${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
+              --load hydramesh.lisp \
+              --eval '(in-package :d-lisp)' \
+              --eval '(dcf-deploy "hydramesh")' \
+              --quit
+          '';
+
+          installPhase = ''
+            mkdir -p $out/bin $out/lib $out/include
+            cp hydramesh $out/bin/.hydramesh-unwrapped
+            makeWrapper $out/bin/.hydramesh-unwrapped $out/bin/hydramesh \
+              --set LD_LIBRARY_PATH $out/lib
+            cp ${streamdb.packages.${system}.default}/lib/libstreamdb.so $out/lib/
+            cp ${streamdb.packages.${system}.default}/include/libstreamdb.h $out/include/
           '';
         };
 
+        toggleScript = pkgs.writeShellScriptBin "hydramesh-toggle" ''
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          STATUS_FILE="/var/lib/hydramesh/hydramesh-status"
+          SERVICE="hydramesh"
+
+          notify() {
+            hyprctl notify -1 4000 "$1" "HydraMesh" "$2" || true
+          }
+
+          if systemctl is-active --quiet "$SERVICE"; then
+            systemctl stop "$SERVICE"
+            notify "rgb(ff3333)" "Service stopped"
+            echo "OFF" > "$STATUS_FILE"
+          else
+            systemctl start "$SERVICE"
+            notify "rgb(33ff33)" "Service started"
+            echo "ON" > "$STATUS_FILE"
+          fi
+        '';
+
+        statusScript = pkgs.writeShellScriptBin "hydramesh-status" ''
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          SERVICE="hydramesh"
+          ICON_ON="/etc/waybar/hydramesh-on.svg"
+          ICON_OFF="/etc/waybar/hydramesh-off.svg"
+
+          if systemctl is-active --quiet "$SERVICE"; then
+            cat <<EOF
+{"text":"ON","class":"hydramesh-active","tooltip":"HydraMesh running","icon":"$ICON_ON"}
+EOF
+          else
+            cat <<EOF
+{"text":"OFF","class":"hydramesh-inactive","tooltip":"HydraMesh stopped","icon":"$ICON_OFF"}
+EOF
+          fi
+        '';
+
       in {
         packages = {
+          default = hydramesh;
+          inherit hydramesh toggleScript statusScript;
           streamdb = streamdb.packages.${system}.default;
-          quicklisp = quicklisp;
         };
 
         devShells.default = pkgs.mkShell {
@@ -85,26 +162,25 @@
             pkgs.zlib
             pkgs.cacert
             streamdb.packages.${system}.default
-            pkgs.linuxPackages_latest.kernel
-            (pkgs.emacs29.pkgs.withPackages (epkgs: [ epkgs.slime epkgs.slime-company epkgs.magit ]))
-            pkgs.gnupg
-            pkgs.coreutils
-            pkgs.gnused
           ];
+
           shellHook = ''
-            export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
+            export HOME=$PWD
             if [ ! -d "$HOME/quicklisp" ]; then
-              mkdir -p $HOME/quicklisp
-              cp -r ${quicklisp}/etc/quicklisp/* $HOME/quicklisp/
+              curl --cacert ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt -O https://beta.quicklisp.org/quicklisp.lisp
+              ${sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp.lisp \
+                --eval '(quicklisp-quickstart:install :path "$HOME/quicklisp/")' \
+                --quit
+              ${sbcl}/bin/sbcl --load $HOME/quicklisp/setup.lisp \
+                --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
+                --quit
             fi
-            if [ -f src/hydramesh.lisp ]; then
-              sed -i 's/(in-package :d-lisp)/(in-package :hydramesh)/g' src/hydramesh.lisp
-            fi
-            echo "Quicklisp available at $HOME/quicklisp. Load the project with: sbcl --load quicklisp/setup.lisp --load /etc/hydramesh/src/hydramesh.lisp"
-            echo "Emacs with SLIME is available. Run 'emacs' to start."
-            echo "StreamDB library at: ${streamdb.packages.${system}.default}/lib/libstreamdb.so"
+            export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
+            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --load src/hydramesh.lisp"
+            echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.so"
           '';
         };
       }
     );
 }
+```
