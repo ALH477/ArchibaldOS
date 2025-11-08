@@ -32,43 +32,48 @@
           "cl-zigbee" "flexi-streams" "ieee-floats"
         ];
 
-        quicklisp = pkgs.stdenv.mkDerivation {
-          name = "quicklisp-${quicklisp-dist}";
-          src = ./.; # Contains quicklisp.lisp, quicklisp.lisp.asc, distinfo.txt
-          nativeBuildInputs = with pkgs; [ sbcl gnupg coreutils cacert ];
-          buildInputs = [ streamdb.packages.${system}.default ];
-          buildPhase = ''
-            echo "Verifying quicklisp.lisp integrity..."
-            echo "4a7a5c2aebe0716417047854267397e24a44d0cce096127411e9ce9ccfeb2c17  quicklisp.lisp" | sha256sum -c || { echo "Error: SHA256 mismatch for quicklisp.lisp"; exit 1; }
-            gpg --verify quicklisp.lisp.asc quicklisp.lisp || { echo "Error: PGP signature verification failed"; exit 1; }
-            if [ ! -f distinfo.txt ]; then
-              echo "Error: distinfo.txt not found in HydraMesh directory. Download from http://beta.quicklisp.org/dist/quicklisp/2025-06-22/distinfo.txt"
-              exit 1
-            fi
-            mkdir -p quicklisp/local-projects quicklisp/dists/quicklisp/installed/systems
-            cp quicklisp.lisp quicklisp/quicklisp.lisp
-            cp distinfo.txt quicklisp/distinfo.txt
-            ${sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp/quicklisp.lisp \
-              --eval '(quicklisp-quickstart:install :path "quicklisp/")' \
-              --quit || { echo "Error: Quicklisp installation failed"; exit 1; }
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
-              --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
-              --quit || { echo "Error: Quicklisp update failed"; exit 1; }
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
-              --eval '(ql:quickload :quicklisp-slime-helper)' \
-              --quit || { echo "Error: Quicklisp SLIME helper failed"; exit 1; }
-            ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
-              --eval '(ql:quickload (list ${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
-              --eval '(format t "Quicklisp systems: ~A~%" (directory "quicklisp/local-projects/*.asd"))' \
-              --eval '(format t "Quicklisp installed systems: ~A~%" (directory "quicklisp/dists/quicklisp/installed/systems/*.asd"))' \
-              --eval '(format t "cl-protobufs available: ~A~%" (ql-dist:find-system "cl-protobufs"))' \
-              --quit || { echo "Error: Quicklisp package loading failed"; exit 1; }
-          '';
-          installPhase = ''
-            mkdir -p $out/etc/quicklisp
-            cp -r quicklisp/* $out/etc/quicklisp/
-          '';
-        };
+quicklisp = pkgs.stdenv.mkDerivation {
+  name = "quicklisp-${quicklisp-dist}";
+  src = ./.; # Contains quicklisp.lisp, quicklisp.lisp.asc, distinfo.txt
+  nativeBuildInputs = with pkgs; [ sbcl gnupg coreutils cacert ];
+  buildInputs = [ streamdb.packages.${system}.default ];
+  buildPhase = ''
+    echo "Verifying quicklisp.lisp integrity..."
+    echo "4a7a5c2aebe0716417047854267397e24a44d0cce096127411e9ce9ccfeb2c17  quicklisp.lisp" | sha256sum -c || { echo "Error: SHA256 mismatch for quicklisp.lisp"; exit 1; }
+
+    # Create a writable GPG home directory to avoid issues with $HOME=/homeless-shelter
+    mkdir -p gnupg_home
+    export GNUPGHOME=$PWD/gnupg_home
+
+    gpg --verify quicklisp.lisp.asc quicklisp.lisp || { echo "Error: PGP signature verification failed"; exit 1; }
+    if [ ! -f distinfo.txt ]; then
+      echo "Error: distinfo.txt not found in HydraMesh directory. Download from http://beta.quicklisp.org/dist/quicklisp/2025-06-22/distinfo.txt"
+      exit 1
+    fi
+    mkdir -p quicklisp/local-projects quicklisp/dists/quicklisp/installed/systems
+    cp quicklisp.lisp quicklisp/quicklisp.lisp
+    cp distinfo.txt quicklisp/distinfo.txt
+    ${sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp/quicklisp.lisp \
+      --eval '(quicklisp-quickstart:install :path "quicklisp/")' \
+      --quit || { echo "Error: Quicklisp installation failed"; exit 1; }
+    ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
+      --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "${quicklisp-dist}"))' \
+      --quit || { echo "Error: Quicklisp update failed"; exit 1; }
+    ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
+      --eval '(ql:quickload :quicklisp-slime-helper)' \
+      --quit || { echo "Error: Quicklisp SLIME helper failed"; exit 1; }
+    ${sbcl}/bin/sbcl --load quicklisp/setup.lisp \
+      --eval '(ql:quickload (list ${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
+      --eval '(format t "Quicklisp systems: ~A~%" (directory "quicklisp/local-projects/*.asd"))' \
+      --eval '(format t "Quicklisp installed systems: ~A~%" (directory "quicklisp/dists/quicklisp/installed/systems/*.asd"))' \
+      --eval '(format t "cl-protobufs available: ~A~%" (ql-dist:find-system "cl-protobufs"))' \
+      --quit || { echo "Error: Quicklisp package loading failed"; exit 1; }
+  '';
+  installPhase = ''
+    mkdir -p $out/etc/quicklisp
+    cp -r quicklisp/* $out/etc/quicklisp/
+  '';
+};
 
         load-quicklisp = pkgs.writeTextFile {
           name = "load-quicklisp.lisp";
