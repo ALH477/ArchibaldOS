@@ -34,18 +34,32 @@
 
 quicklisp = pkgs.stdenv.mkDerivation {
   name = "quicklisp-${quicklisp-dist}";
-  src = ./.; # Contains quicklisp.lisp, quicklisp.lisp.asc, distinfo.txt
+  src = ./.; # Contains quicklisp.lisp, quicklisp.lisp.asc, distinfo.txt, release-key.txt
   nativeBuildInputs = with pkgs; [ sbcl gnupg coreutils cacert ];
   buildInputs = [ streamdb.packages.${system}.default ];
   buildPhase = ''
     echo "Verifying quicklisp.lisp integrity..."
     echo "4a7a5c2aebe0716417047854267397e24a44d0cce096127411e9ce9ccfeb2c17  quicklisp.lisp" | sha256sum -c || { echo "Error: SHA256 mismatch for quicklisp.lisp"; exit 1; }
 
-    # Create a writable GPG home directory to avoid issues with $HOME=/homeless-shelter
+    # Create a writable GPG home directory
     mkdir -p gnupg_home
+    chmod 700 gnupg_home
     export GNUPGHOME=$PWD/gnupg_home
 
+    # Check for and import Quicklisp public key
+    if [ ! -f release-key.txt ]; then
+      echo "Error: release-key.txt not found in HydraMesh directory. Download from https://beta.quicklisp.org/release-key.txt"
+      exit 1
+    fi
+    gpg --import release-key.txt || { echo "Error: Failed to import release-key.txt"; exit 1; }
+
+    # Verify the signature
+    if [ ! -f quicklisp.lisp.asc ]; then
+      echo "Error: quicklisp.lisp.asc not found in HydraMesh directory."
+      exit 1
+    fi
     gpg --verify quicklisp.lisp.asc quicklisp.lisp || { echo "Error: PGP signature verification failed"; exit 1; }
+
     if [ ! -f distinfo.txt ]; then
       echo "Error: distinfo.txt not found in HydraMesh directory. Download from http://beta.quicklisp.org/dist/quicklisp/2025-06-22/distinfo.txt"
       exit 1
