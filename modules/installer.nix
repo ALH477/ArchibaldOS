@@ -189,19 +189,19 @@ setup_logging() {
 }
 
 log_info() {
-  echo -e "${BLUE}[INFO]${NC} $(date '+%H:%M:%S') $*"
+  echo -e "''${BLUE}[INFO]''${NC} $(date '+%H:%M:%S') $*"
 }
 
 log_success() {
-  echo -e "${GREEN}[✓]${NC} $(date '+%H:%M:%S') $*"
+  echo -e "''${GREEN}[✓]''${NC} $(date '+%H:%M:%S') $*"
 }
 
 log_warning() {
-  echo -e "${YELLOW}[WARN]${NC} $(date '+%H:%M:%S') $*"
+  echo -e "''${YELLOW}[WARN]''${NC} $(date '+%H:%M:%S') $*"
 }
 
 log_error() {
-  echo -e "${RED}[✗]${NC} $(date '+%H:%M:%S') $*" >&2
+  echo -e "''${RED}[✗]''${NC} $(date '+%H:%M:%S') $*" >&2
 }
 
 error_exit() {
@@ -277,14 +277,14 @@ validate_username() {
 
 validate_password() {
   local pw="$1"
-  [ ${#pw} -ge 8 ] && return 0
+  [ ''${#pw} -ge 8 ] && return 0
   return 1
 }
 
 validate_locale() {
   local locale="$1"
   # Check if locale is available
-  locale -a | grep -q "^${locale}$" 2>/dev/null && return 0
+  locale -a | grep -q "^''${locale}$" 2>/dev/null && return 0
   return 1
 }
 
@@ -304,11 +304,11 @@ dialog_menu() {
   local items=("$@")
   
   dialog --clear --title "$title" --menu "$prompt" "$height" "$width" $((height - 8)) \
-    "${items[@]}" 3>&1 1>&2 2>&3 || return 1
+    "''${items[@]}" 3>&1 1>&2 2>&3 || return 1
 }
 
 dialog_input() {
-  local title="$1" prompt="$2" default="${3:-}"
+  local title="$1" prompt="$2" default="''${3:-}"
   
   local result
   result=$(dialog --clear --title "$title" --inputbox "$prompt" 10 70 "$default" 3>&1 1>&2 2>&3) || return 1
@@ -431,7 +431,7 @@ select_disk() {
 }
 
 confirm_disk_wipe() {
-  local disk="${CONFIG[disk]}"
+  local disk="''${CONFIG[disk]}"
   local size
   size=$(lsblk -ndo SIZE "$disk")
   
@@ -660,27 +660,27 @@ review_config() {
 ╚════════════════════════════════════════════════════════════════╝
 
 SYSTEM CONFIGURATION
-  Hostname:        ${CONFIG[hostname]}
-  Keyboard:        ${CONFIG[keyboard]}
-  Locale:          ${CONFIG[locale]}
-  Timezone:        ${CONFIG[timezone]}
+  Hostname:        ''${CONFIG[hostname]}
+  Keyboard:        ''${CONFIG[keyboard]}
+  Locale:          ''${CONFIG[locale]}
+  Timezone:        ''${CONFIG[timezone]}
 
 USER ACCOUNT
-  Username:        ${CONFIG[username]}
-  Password:        $([ -n "${CONFIG[userpw]}" ] && echo "***SET***" || echo "NOT SET")
+  Username:        ''${CONFIG[username]}
+  Password:        $([ -n "''${CONFIG[userpw]}" ] && echo "***SET***" || echo "NOT SET")
 
 DISK & ENCRYPTION
-  Disk:            ${CONFIG[disk]}
-  Size:            $(lsblk -ndo SIZE "${CONFIG[disk]}")
-  Encryption:      ${CONFIG[encrypt]} $([ "${CONFIG[encrypt]}" = "true" ] && echo "(LUKS2)" || echo "")
+  Disk:            ''${CONFIG[disk]}
+  Size:            $(lsblk -ndo SIZE "''${CONFIG[disk]}")
+  Encryption:      ''${CONFIG[encrypt]} $([ "''${CONFIG[encrypt]}" = "true" ] && echo "(LUKS2)" || echo "")
 
 FEATURES
-  HydraMesh:       ${CONFIG[hydramesh]}
-  Internet:        ${CONFIG[has_internet]}
+  HydraMesh:       ''${CONFIG[hydramesh]}
+  Internet:        ''${CONFIG[has_internet]}
 
 ╚════════════════════════════════════════════════════════════════╝
 
-This will ERASE all data on ${CONFIG[disk]}!
+This will ERASE all data on ''${CONFIG[disk]}!
 EOF
 )
   
@@ -698,10 +698,10 @@ EOF
 # ============================================================================
 
 generate_disko_config() {
-  local disk="${CONFIG[disk]}"
-  local encrypt="${CONFIG[encrypt]}"
-  local encrypt_pw="${CONFIG[encrypt_pw]}"
-  local luks_name="${CONFIG[luks_name]}"
+  local disk="''${CONFIG[disk]}"
+  local encrypt="''${CONFIG[encrypt]}"
+  local encrypt_pw="''${CONFIG[encrypt_pw]}"
+  local luks_name="''${CONFIG[luks_name]}"
   
   local disko_file="/tmp/disko-$$.nix"
   
@@ -785,8 +785,8 @@ DISKO_EOF
   fi
   
   # Replace variables safely
-  sed -i "s|\$DISK|${disk}|g" "$disko_file"
-  sed -i "s|\$LUKS_NAME|${luks_name}|g" "$disko_file"
+  sed -i "s|\$DISK|''${disk}|g" "$disko_file"
+  sed -i "s|\$LUKS_NAME|''${luks_name}|g" "$disko_file"
   
   # Validate Nix syntax
   if ! nix eval -f "$disko_file" 2>/dev/null >/dev/null; then
@@ -801,7 +801,7 @@ DISKO_EOF
 # ============================================================================
 
 format_disk() {
-  local disk="${CONFIG[disk]}"
+  local disk="''${CONFIG[disk]}"
   local disko_file
   disko_file=$(generate_disko_config) || error_exit "Disko config generation failed"
   
@@ -815,7 +815,7 @@ format_disk() {
 }
 
 mount_disk() {
-  local disk="${CONFIG[disk]}"
+  local disk="''${CONFIG[disk]}"
   local disko_file
   disko_file=$(generate_disko_config) || error_exit "Disko config generation failed"
   
@@ -835,19 +835,19 @@ mount_disk() {
 }
 
 generate_nixos_config() {
-  local keyboard="${CONFIG[keyboard]}"
-  local timezone="${CONFIG[timezone]}"
-  local locale="${CONFIG[locale]}"
-  local hostname="${CONFIG[hostname]}"
-  local username="${CONFIG[username]}"
+  local keyboard="''${CONFIG[keyboard]}"
+  local timezone="''${CONFIG[timezone]}"
+  local locale="''${CONFIG[locale]}"
+  local hostname="''${CONFIG[hostname]}"
+  local username="''${CONFIG[username]}"
   local userpw_hash
-  local encrypt="${CONFIG[encrypt]}"
-  local hydramesh="${CONFIG[hydramesh]}"
+  local encrypt="''${CONFIG[encrypt]}"
+  local hydramesh="''${CONFIG[hydramesh]}"
   
   log_info "Generating NixOS configuration..."
   
   # Generate password hash
-  userpw_hash=$(echo "${CONFIG[userpw]}" | mkpasswd -m sha-512 -s)
+  userpw_hash=$(echo "''${CONFIG[userpw]}" | mkpasswd -m sha-512 -s)
   
   # Generate hardware config
   nixos-generate-config --root "$INSTALL_ROOT" 2>&1 | tee -a "$LOG_FILE" || \
@@ -888,8 +888,8 @@ generate_nixos_config() {
 
   # LUKS/Encryption
 $(if [ "$encrypt" = "true" ]; then cat <<LUKS_CONFIG
-  boot.initrd.luks.devices."${CONFIG[luks_name]}" = {
-    device = "/dev/disk/by-uuid/$(blkid -s UUID -o value /dev/\$(lsblk -no NAME "${CONFIG[disk]}" | tail -1)2)";
+  boot.initrd.luks.devices."''${CONFIG[luks_name]}" = {
+    device = "/dev/disk/by-uuid/$(blkid -s UUID -o value /dev/\$(lsblk -no NAME "''${CONFIG[disk]}" | tail -1)2)";
     preLVM = true;
   };
 LUKS_CONFIG
@@ -954,7 +954,7 @@ install_system() {
 }
 
 setup_user_configs() {
-  local username="${CONFIG[username]}"
+  local username="''${CONFIG[username]}"
   mkdir -p "$INSTALL_ROOT/home/$username/.config/hypr" "$INSTALL_ROOT/home/$username/.config/waybar" "$INSTALL_ROOT/home/$username/.config/wofi" || error_exit "User config directories failed"
   cp /etc/hypr/* "$INSTALL_ROOT/home/$username/.config/hypr/" || error_exit "Hyprland copy failed"
   cp /etc/waybar/* "$INSTALL_ROOT/home/$username/.config/waybar/" || error_exit "Waybar copy failed"
