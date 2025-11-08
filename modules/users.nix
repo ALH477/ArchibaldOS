@@ -19,7 +19,7 @@ in {
     isNormalUser = true;
     extraGroups = [ "wheel" "audio" "jackaudio" "video" ];
     initialPassword = "nixos";
-    shell = pkgs.bash;
+    # Removed shell definition to avoid conflict with flake.nix
   };
 
   security.sudo.wheelNeedsPassword = false;
