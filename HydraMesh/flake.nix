@@ -46,8 +46,8 @@
             pkgs.zlib
             pkgs.cacert
             streamdb.packages.${system}.default
-            pkgs.linuxPackages_latest.kernel # ArchibaldOS-specific: Add kernel modules for audio DSP
-            (pkgs.emacs29.pkgs.withPackages (epkgs: [ epkgs.slime epkgs.slime-company epkgs.magit ])) # Use Nix for SLIME and slime-company
+            pkgs.linuxPackages_latest.kernel
+            (pkgs.emacs29.pkgs.withPackages (epkgs: [ epkgs.slime epkgs.slime-company epkgs.magit ]))
           ];
 
           shellHook = ''
@@ -73,10 +73,20 @@
                 --eval '(ql:quickload :quicklisp-slime-helper)' \
                 --quit || { echo "Error: Quicklisp SLIME helper failed"; exit 1; }
             fi
+            if [ -f src/hydramesh.lisp ]; then
+              sed -i 's/(in-package :d-lisp)/(in-package :hydramesh)/g' src/hydramesh.lisp
+            fi
             export LD_LIBRARY_PATH=${streamdb.packages.${system}.default}/lib:$LD_LIBRARY_PATH
-            echo "Quicklisp set up with dist ${quicklisp-dist}. Load the project with: sbcl --load quicklisp/setup.lisp --load src/hydramesh.lisp"
+            ${sbcl}/bin/sbcl --load $HOME/quicklisp/setup.lisp \
+              --eval '(ql:quickload (list ${pkgs.lib.concatStringsSep " " (map (p: ":${p}") ql-packages)}))' \
+              --eval '(format t "Quicklisp systems: ~A~%" (directory "$HOME/quicklisp/local-projects/*.asd"))' \
+              --eval '(format t "Quicklisp installed systems: ~A~%" (directory "$HOME/quicklisp/dists/quicklisp/installed/systems/*.asd"))' \
+              --eval '(format t "cl-protobufs available: ~A~%" (ql-dist:find-system "cl-protobufs"))' \
+              --quit
+            echo "Quicklisp set up with dist ${quicklisp-dist}."
+            echo "Emacs with SLIME is available. Run 'emacs' to start."
+            echo "To load HydraMesh in SLIME: M-x slime, then (load \"src/hydramesh.lisp\")"
             echo "StreamDB library available at: ${streamdb.packages.${system}.default}/lib/libstreamdb.so"
-            echo "Emacs with SLIME is available for interactive development. Run 'emacs' to start."
             echo "Kernel modules for audio DSP are available via linuxPackages_latest."
             echo "Troubleshooting: If Quicklisp fails, verify quicklisp.lisp and distinfo.txt, or check network."
           '';
