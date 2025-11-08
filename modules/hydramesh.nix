@@ -19,7 +19,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkgs.sbcl pkgs.streamdb ];
+    environment.systemPackages = [ pkgs.sbcl pkgs.hydramesh-toggle pkgs.hydramesh-status pkgs.quicklisp pkgs.streamdb ];
 
     environment.etc."hydramesh".source = ./HydraMesh;
 
@@ -59,14 +59,10 @@ in {
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         ExecStart = "${pkgs.writeShellScriptBin "hydramesh-start" ''
-          if [ ! -d "/root/quicklisp" ]; then
-            curl -O https://beta.quicklisp.org/quicklisp.lisp
-            ${pkgs.sbcl}/bin/sbcl --load quicklisp.lisp --eval '(quicklisp-quickstart:install)' --quit
-          fi
-          ${pkgs.sbcl}/bin/sbcl --load /root/quicklisp/setup.lisp \
+          ${pkgs.sbcl}/bin/sbcl --load /etc/quicklisp/setup.lisp \
             --load /etc/hydramesh/src/hydramesh.lisp \
             --eval '(dolist (plugin (directory "/etc/hydramesh/plugins/*.lisp")) (load plugin))' \
-            --eval '(in-package :d-lisp)' \
+            --eval '(in-package :hydramesh)' \
             --eval '(hydramesh-init "${cfg.configFile}" :restore-state t)' \
             --eval '(hydramesh-start)' \
             --non-interactive
