@@ -1,4 +1,5 @@
-{ config, pkgs, lib, ... }:
+{
+  config, pkgs, lib, ... }:
 
 let
   cfg = config.services.hydramesh;
@@ -18,7 +19,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkgs.sbcl pkgs.hydramesh-toggle pkgs.hydramesh-status pkgs.streamdb ];
+    environment.systemPackages = [ pkgs.sbcl pkgs.streamdb ];
 
     environment.etc."hydramesh".source = ./HydraMesh;
 
@@ -65,7 +66,7 @@ in {
           ${pkgs.sbcl}/bin/sbcl --load /root/quicklisp/setup.lisp \
             --load /etc/hydramesh/src/hydramesh.lisp \
             --eval '(dolist (plugin (directory "/etc/hydramesh/plugins/*.lisp")) (load plugin))' \
-            --eval '(in-package :hydramesh)' \
+            --eval '(in-package :d-lisp)' \
             --eval '(hydramesh-init "${cfg.configFile}" :restore-state t)' \
             --eval '(hydramesh-start)' \
             --non-interactive
