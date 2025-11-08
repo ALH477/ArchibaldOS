@@ -18,8 +18,33 @@
       overlays = [
         (final: prev: rec {
           hyprland = hyprland.packages.${system}.hyprland;
-          hydramesh-pkg = hydramesh.packages.${system}.hydramesh;
           streamdb-pkg = hydramesh.packages.${system}.streamdb;
+          quicklisp = prev.stdenv.mkDerivation {
+            name = "quicklisp-2024-10-10";
+            src = ./HydraMesh; # Contains quicklisp.lisp, quicklisp.lisp.asc, distinfo.txt
+            nativeBuildInputs = with prev; [ sbcl gnupg coreutils cacert ];
+            buildInputs = [ hydramesh.packages.${system}.streamdb ];
+            buildPhase = ''
+              echo "4a7a5c2aebe0716417047854267397e24a44d0cce096127411e9ce9ccfeb2c17  quicklisp.lisp" | sha256sum -c || { echo "Error: SHA256 mismatch for quicklisp.lisp"; exit 1; }
+              gpg --verify quicklisp.lisp.asc quicklisp.lisp || { echo "Error: PGP signature verification failed"; exit 1; }
+              mkdir -p quicklisp/local-projects quicklisp/dists/quicklisp/installed/systems
+              cp quicklisp.lisp quicklisp/quicklisp.lisp
+              cp distinfo.txt quicklisp/distinfo.txt
+              ${prev.sbcl}/bin/sbcl --no-userinit --no-sysinit --load quicklisp/quicklisp.lisp \
+                --eval '(quicklisp-quickstart:install :path "quicklisp/")' \
+                --quit || { echo "Error: Quicklisp installation failed"; exit 1; }
+              ${prev.sbcl}/bin/sbcl --load quicklisp/setup.lisp \
+                --eval '(ql-util:without-prompting (ql:update-client) (ql:update-dist "quicklisp" :dist-version "2024-10-10"))' \
+                --quit || { echo "Error: Quicklisp update failed"; exit 1; }
+              ${prev.sbcl}/bin/sbcl --load quicklisp/setup.lisp \
+                --eval '(ql:quickload (list :cl-protobufs :cl-grpc :cffi :uuid :cl-json :cl-json-schema :cl-ppcre :cl-csv :usocket :bordeaux-threads :curses :log4cl :trivial-backtrace :cl-store :mgl :hunchensocket :fiveam :cl-dot :cl-lsquic :cl-serial :cl-can :cl-sctp :cl-zigbee :flexi-streams :ieee-floats))' \
+                --quit || { echo "Error: Quicklisp package loading failed"; exit 1; }
+            '';
+            installPhase = ''
+              mkdir -p $out/etc/quicklisp
+              cp -r quicklisp/* $out/etc/quicklisp/
+            '';
+          };
         })
       ];
     };
@@ -29,6 +54,7 @@
     sbclWithPkgs = pkgs.sbcl.withPackages (ps: with ps; [
       cffi cl-ppcre cl-json cl-csv usocket bordeaux-threads log4cl trivial-backtrace cl-store hunchensocket fiveam cl-dot cserial-port
     ]);
+
   in {
     nixosConfigurations = {
       archibaldOS = nixpkgs.lib.nixosSystem {
@@ -46,10 +72,9 @@
           ({ config, pkgs, lib, ... }: {
             environment.systemPackages = with pkgs; [
               usbutils libusb1 alsa-firmware alsa-tools sbclWithPkgs
-            ] ++ [
-              hydramesh.packages.${system}.toggleScript
-              hydramesh.packages.${system}.statusScript
-              hydramesh.packages.${system}.streamdb
+              (emacs29.pkgs.withPackages (epkgs: [ epkgs.slime epkgs.slime-company epkgs.magit ]))
+              streamdb-pkg
+              quicklisp
             ];
 
             hardware.graphics.enable = true;
@@ -64,7 +89,44 @@
               waybarIcons = true;
             };
 
-            users.users.nixos.initialHashedPassword = lib.mkForce null;
+            users.users.nixos = {
+              initialHashedPassword = lib.mkForce null;
+              home = "/home/nixos";
+              createHome = true;
+              extraGroups = [ "audio" ]; # For RT audio access
+              shell = pkgs.bash; # Ensure shell for live ISO
+            };
+
+            environment.etc."emacs/init.el".text = ''
+              (setq inferior-lisp-program "${pkgs.sbcl}/bin/sbcl")
+              (require 'slime)
+              (slime-setup '(slime-fancy slime-quicklisp slime-asdf slime-company))
+              (defun load-hydramesh () (interactive) (slime-load-file "/etc/hydramesh/src/hydramesh.lisp"))
+              (defun start-hydramesh-daemon () (interactive) (slime-eval `(hydramesh-init "/etc/hydramesh/config.json" :restore-state t)) (slime-eval `(hydramesh-start)))
+              (defun stop-hydramesh-daemon () (interactive) (slime-eval `(hydramesh-stop)))
+              (defun check-hydramesh-status () (interactive) (shell-command "systemctl --user status hydramesh"))
+              (defun run-hydramesh-tests () (interactive) (slime-eval '(fiveam:run! :hydramesh)))
+              (global-set-key (kbd "C-c h") 'load-hydramesh)
+              (global-set-key (kbd "C-c s") 'start-hydramesh-daemon)
+              (global-set-key (kbd "C-c x") 'stop-hydramesh-daemon)
+              (global-set-key (kbd "C-c c") 'check-hydramesh-status)
+              (global-set-key (kbd "C-c t") 'run-hydramesh-tests)
+            '';
+
+            environment.etc."quicklisp".source = "${pkgs.quicklisp}/etc/quicklisp";
+            environment.etc."quicklisp/setup.lisp".source = "${pkgs.quicklisp}/etc/quicklisp/setup.lisp";
+
+            systemd.user.services.emacs = {
+              description = "Emacs Daemon for HydraMesh Development";
+              wantedBy = [ "default.target" ];
+              serviceConfig = {
+                ExecStart = "${pkgs.emacs29}/bin/emacs --daemon";
+                Restart = "always";
+              };
+            };
+
+            musnix.enable = true;
+            musnix.kernel.realtime = true; # Ensure RT kernel for DSP
           })
         ];
       };
@@ -79,11 +141,19 @@
         surge vcvrack pd
         pcmanfm vim brave
         sbclWithPkgs
-      ] ++ [
-        hydramesh.packages.${system}.toggleScript
-        hydramesh.packages.${system}.statusScript
-        hydramesh.packages.${system}.streamdb
+        (emacs29.pkgs.withPackages (epkgs: [ epkgs.slime epkgs.slime-company epkgs.magit ]))
+        quicklisp
       ];
+      shellHook = ''
+        export LD_LIBRARY_PATH=${streamdb-pkg}/lib:$LD_LIBRARY_PATH
+        if [ ! -d "$HOME/quicklisp" ]; then
+          mkdir -p $HOME/quicklisp
+          cp -r ${pkgs.quicklisp}/etc/quicklisp/* $HOME/quicklisp/
+        fi
+        echo "Quicklisp available at $HOME/quicklisp. Load the project with: sbcl --load quicklisp/setup.lisp --load /etc/hydramesh/src/hydramesh.lisp"
+        echo "Emacs with SLIME is available. Run 'emacs' to start."
+        echo "StreamDB library at: ${streamdb-pkg}/lib/libstreamdb.so"
+      '';
     };
   };
 }
