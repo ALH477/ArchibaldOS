@@ -2,7 +2,7 @@
 
 let
   audioPackages = with pkgs; [
-    ardour audacity fluidsynth musescore guitarix
+    audacity fluidsynth musescore guitarix
     csound csound-qt faust portaudio rtaudio supercollider qjackctl
     surge zrythm carla puredata cardinal helm zynaddsubfx vmpk qmidinet 
     faust2alsa faust2csound faust2jack dragonfly-reverb calf
