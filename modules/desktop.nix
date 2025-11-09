@@ -1,6 +1,6 @@
 { config, pkgs, ... }: let
   basicPackages = with pkgs; [
-    pcmanfm vim brave polybar feh kitty wireplumber cava playerctl
+    pcmanfm vim feh kitty wireplumber cava playerctl
     scrot
     dmenu
     jetbrains-mono
@@ -223,7 +223,6 @@
   customDwmPkg = pkgs.dwm.override { conf = dwmConf; };
 
   customDwm = pkgs.writeShellScriptBin "dwm" ''
-    ${pkgs.polybar}/bin/polybar --config=/etc/polybar/config.ini &
     ${pkgs.feh}/bin/feh --bg-fill /etc/hypr/wallpaper.jpg &
     exec ${customDwmPkg}/bin/dwm
   '';
@@ -236,77 +235,6 @@ in {
   services.displayManager.defaultSession = "none+dwm";
   services.displayManager.sddm.settings = {
     General.Background = "/etc/hypr/wallpaper.jpg";
-  };
-
-  environment.etc."polybar/config.ini".text = ''
-    [bar/main]
-    monitor =
-    width = 100%
-    height = 30
-    radius = 0
-    fixed-center = true
-
-    background = #000000
-    foreground = #ffffff
-
-    line-size = 2
-    line-color = #f00
-
-    border-size = 0
-    border-color = #00000000
-
-    padding-left = 0
-    padding-right = 2
-
-    module-margin-left = 1
-    module-margin-right = 2
-
-    font-0 = fixed:pixelsize=10;1
-
-    modules-left = cava
-    modules-center = date
-    modules-right = cpu memory
-
-    tray-position = right
-    tray-padding = 2
-
-    wm-restack = generic
-
-    [module/cava]
-    type = custom/script
-    tail = true
-    exec = /etc/polybar/cava.sh
-    format = <label>
-    label = %output%
-
-    [module/date]
-    type = internal/date
-    interval = 5
-    date = %Y-%m-%d%
-    time = %H:%M:%S
-    label = %date% %time%
-
-    [module/cpu]
-    type = internal/cpu
-    interval = 2
-    format-prefix = "CPU "
-    label = %percentage:2%%
-
-    [module/memory]
-    type = internal/memory
-    interval = 2
-    format-prefix = "RAM "
-    label = %percentage_used%%
-  '';
-
-  environment.etc."polybar/cava.sh" = {
-    source = ./cava.sh;
-    mode = "0755";
-  };
-
-  environment.etc."live-audio-test.sh" = {
-    source = ./live-audio-test.sh;
-    mode = "0755";
   };
 
   environment.systemPackages = basicPackages;
