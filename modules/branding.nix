@@ -18,7 +18,7 @@
                     _     _ _           _     _  ____   _____  
      /\            | |   (_) |         | |   | |/ __ \ / ____| 
     /  \   _ __ ___| |__  _| |__   __ _| | __| | |  | | (___   
-   / /\ \ | '__/ __| '_ \| | '_ \ / _` | |/ _` | |  | |\___ \  
+   / /\ \ | '__/ __| '_ \| | '_ \| / _` | |/ _` | |  | |\___ \  
   / ____ \| | | (__| | | | | |_) | (_| | | (_| | |__| |____) | 
  /_/    \_\_|  \___|_| |_|_|_.__/ \__,_|_|\__,_|\____/|_____/  
                                                                
@@ -70,9 +70,7 @@ EOF
     };
 
     # === 3. Wallpaper ===
-    environment.etc."hypr/wallpaper.jpg" = lib.mkIf config.branding.wallpaper {
-      source = ./assets/demod-wallpaper.jpg;
-    };
+    environment.etc."hypr/wallpaper.jpg".source = lib.mkIf config.branding.wallpaper ./assets/demod-wallpaper.jpg;
 
     # === 4. Waybar Icons ===
     environment.etc."waybar/hydramesh-on.svg" = lib.mkIf config.branding.waybarIcons {

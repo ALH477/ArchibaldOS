@@ -15,7 +15,7 @@ in {
   musnix.rtirq.enable = true;
   musnix.das_watchdog.enable = true;
 
-  services.pulseaudio.enable = false;
+  hardware.pulseaudio.enable = false;
 
   services.pipewire = {
     enable = true;
@@ -42,10 +42,10 @@ in {
     "processor.max_cstate=1"
   ];
 
-  boot.kernel.sysctl = {
-    "vm.swappiness" = 0;
-    "fs.inotify.max_user_watches" = 600000;
-  };
+boot.kernel.sysctl = {
+  "vm.swappiness" = lib.mkForce 0;
+  "fs.inotify.max_user_watches" = 600000;
+};
 
   environment.etc."sysctl.d/99-audio.conf".text = ''
     dev.rtc.max-user-freq = 2048

@@ -1,96 +1,137 @@
 { config, pkgs, ... }: let
   basicPackages = with pkgs; [
-    pcmanfm vim brave polybar feh waybar kitty wofi wireplumber grim slurp hyprpaper cava playerctl
-    (nerdfonts.override { fonts = [ "Gohu" "Noto" "RobotoMono" ]; })  # For Unicode bars and Waybar fonts
+    pcmanfm vim brave polybar feh kitty wireplumber cava playerctl
+    scrot
+    dmenu
+    jetbrains-mono
+    noto-fonts-emoji
   ];
-  wallpaperSrc = ../wallpaper.jpg;
+
+  dwmConf = ''
+    #include <X11/XF86keysym.h>
+
+    static const unsigned int borderpx  = 3;
+    static const unsigned int gappx     = 6;
+    static const unsigned int snap      = 32;
+    static const int showbar            = 1;
+    static const int topbar             = 1;
+    static const char *fonts[]          = { "JetBrains Mono:size=11:antialias=true:autohint=true", "Noto Color Emoji:size=10" };
+    static const char dmenufont[]       = "JetBrains Mono:size=11:antialias=true:autohint=true";
+    static const char col_nord0[]       = "#2E3440";
+    static const char col_nord3[]       = "#4C566A";
+    static const char col_nord4[]       = "#D8DEE9";
+    static const char col_nord7[]       = "#8FBCBB";
+    static const char col_nord8[]       = "#88C0D0";
+    static const char *colors[][3]      = {
+      [SchemeNorm] = { col_nord4, col_nord0, col_nord3 },
+      [SchemeSel]  = { col_nord0, col_nord7, col_nord8 },
+    };
+
+    static const char *tags[] = { "", "", "", "", "" };
+
+    static const Rule rules[] = {
+      { "Gimp",     NULL,       NULL,       0,            1,           -1 },
+      { "Brave-browser",  NULL,       NULL,       1 << 1,       0,           -1 },
+    };
+
+    static const float mfact     = 0.55;
+    static const int nmaster     = 1;
+    static const int resizehints = 1;
+    static const int lockfullscreen = 1;
+
+    static const Layout layouts[] = {
+      { "󰛊 ",      tile },
+      { "󰉧 ",      NULL },
+      { "󰍉 ",      monocle },
+    };
+
+    #define MODKEY Mod4Mask
+    #define TAGKEYS(KEY,TAG) \
+      { MODKEY,                       KEY,      view,           {.ui = 1 << TAG} }, \
+      { MODKEY|ControlMask,           KEY,      toggleview,     {.ui = 1 << TAG} }, \
+      { MODKEY|ShiftMask,             KEY,      tag,            {.ui = 1 << TAG} }, \
+      { MODKEY|ControlMask|ShiftMask, KEY,      toggletag,      {.ui = 1 << TAG} },
+
+    #define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
+
+    static char dmenumon[2] = "0";
+    static const char *dmenucmd[] = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", col_nord0, "-nf", col_nord4, "-sb", col_nord7, "-sf", col_nord0, NULL };
+    static const char *termcmd[]  = { "kitty", NULL };
+    static const char *upvol[] = { "wpctl", "set-volume", "-l", "1", "@DEFAULT_AUDIO_SINK@", "5%+", NULL };
+    static const char *downvol[] = { "wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-", NULL };
+    static const char *mutevol[] = { "wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle", NULL };
+    static const char *screenshot[] = { "scrot", "/home/nixos/Pictures/Screenshots/screenshot-%F-%T.png", NULL };
+    static const char *hydramesh[] = { "hydramesh-toggle", NULL };
+    static const char *cheatsheet[] = { "/home/nixos/.config/hypr/keybindings_cheatsheet.sh", NULL };
+
+    static const Key keys[] = {
+      { MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
+      { MODKEY,                       XK_q,      spawn,          {.v = termcmd } },
+      { MODKEY,                       XK_c,      killclient,     {0} },
+      { MODKEY,                       XK_m,      quit,           {0} },
+      { MODKEY,                       XK_h,      focusstack,     {.i = -1 } },
+      { MODKEY,                       XK_l,      focusstack,     {.i = +1 } },
+      { MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
+      { MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
+      { MODKEY,                       XK_1,      view,           {.ui = 1 << 0 } },
+      { MODKEY,                       XK_2,      view,           {.ui = 1 << 1 } },
+      { MODKEY,                       XK_3,      view,           {.ui = 1 << 2 } },
+      { MODKEY,                       XK_4,      view,           {.ui = 1 << 3 } },
+      { MODKEY,                       XK_5,      view,           {.ui = 1 << 4 } },
+      { 0,                            XF86XK_AudioRaiseVolume, spawn, {.v = upvol } },
+      { 0,                            XF86XK_AudioLowerVolume, spawn, {.v = downvol } },
+      { 0,                            XF86XK_AudioMute, spawn, {.v = mutevol } },
+      { MODKEY,                       XK_Print,  spawn,          {.v = screenshot } },
+      { MODKEY|ShiftMask,             XK_h,      spawn,          {.v = hydramesh } },
+      { MODKEY|ShiftMask,             XK_k,      spawn,          {.v = cheatsheet } },
+      { MODKEY,                       XK_b,      togglebar,      {0} },
+      { MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
+      { MODKEY,                       XK_p,      incnmaster,     {.i = -1 } },
+      { MODKEY,                       XK_Return, zoom,           {0} },
+      { MODKEY,                       XK_Tab,    view,           {0} },
+      { MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
+      { MODKEY,                       XK_f,      setlayout,      {.v = &layouts[1]} },
+      { MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
+      { MODKEY,                       XK_0,      view,           {.ui = ~0 } },
+      { MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
+      { MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
+      { MODKEY,                       XK_period, focusmon,       {.i = +1 } },
+      { MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
+      { MODKEY|ShiftMask,             XK_period, tagmon,         {.i = +1 } },
+    };
+
+    static const Button buttons[] = {
+      { ClkLtSymbol,          0,              Button1,        setlayout,      {0} },
+      { ClkLtSymbol,          0,              Button3,        setlayout,      {.v = &layouts[2]} },
+      { ClkWinTitle,          0,              Button2,        zoom,           {0} },
+      { ClkStatusText,        0,              Button2,        spawn,          {.v = termcmd } },
+      { ClkClientWin,         MODKEY,         Button1,        movemouse,      {0} },
+      { ClkClientWin,         MODKEY,         Button2,        togglefloating, {0} },
+      { ClkClientWin,         MODKEY,         Button3,        resizemouse,    {0} },
+      { ClkTagBar,            0,              Button1,        view,           {0} },
+      { ClkTagBar,            0,              Button3,        toggleview,     {0} },
+      { ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
+      { ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
+    };
+  '';
+
+  customDwmPkg = pkgs.dwm.override { conf = dwmConf; };
 
   customDwm = pkgs.writeShellScriptBin "dwm" ''
     ${pkgs.polybar}/bin/polybar --config=/etc/polybar/config.ini &
     ${pkgs.feh}/bin/feh --bg-fill /etc/hypr/wallpaper.jpg &
-    exec ${pkgs.dwm}/bin/dwm
+    exec ${customDwmPkg}/bin/dwm
   '';
 in {
   services.xserver.enable = true;
   services.xserver.windowManager.dwm.enable = true;
   services.xserver.windowManager.dwm.package = customDwm;
   services.displayManager.sddm.enable = true;
-  services.displayManager.sddm.wayland.enable = true;
+  services.displayManager.sddm.wayland.enable = false;
+  services.displayManager.defaultSession = "none+dwm";
   services.displayManager.sddm.settings = {
     General.Background = "/etc/hypr/wallpaper.jpg";
   };
-  environment.etc."hypr/wallpaper.jpg".source = wallpaperSrc;
-
-  programs.hyprland.enable = true;
-
-  environment.etc."hypr/hyprland.conf".text = ''
-    exec-once = kitty
-    exec-once = waybar -c /etc/waybar/config -s /etc/waybar/style.css
-    exec-once = hyprpaper
-    monitor=,preferred,auto,1
-    $terminal = kitty
-    $menu = wofi --show drun
-    general {
-      gaps_in = 5
-      gaps_out = 10
-      border_size = 2
-      col.active_border = rgba(33ff33aa) rgba(00ff00aa) 45deg
-      col.inactive_border = rgba(595959aa)
-      layout = dwindle
-    }
-    decoration {
-      rounding = 12
-      blur {
-        enabled = true
-        size = 8
-        passes = 2
-      }
-    }
-    animations {
-      enabled = true
-    }
-    dwindle {
-      pseudotile = true
-      preserve_split = true
-    }
-    input {
-      kb_layout = us
-      follow_mouse = 1
-      touchpad {
-        natural_scroll = true
-      }
-    }
-    gestures {
-      workspace_swipe = true
-    }
-    $mainMod = SUPER
-    bind = $mainMod, Q, exec, $terminal
-    bind = $mainMod, C, killactive,
-    bind = $mainMod, M, exit,
-    bind = $mainMod, D, exec, $menu
-    bind = $mainMod, H, movefocus, l
-    bind = $mainMod, L, movefocus, r
-    bind = $mainMod, K, movefocus, u
-    bind = $mainMod, J, movefocus, d
-    bind = $mainMod, 1, workspace, 1
-    bind = $mainMod, 2, workspace, 2
-    bind = $mainMod, 3, workspace, 3
-    bind = $mainMod, 4, workspace, 4
-    bind = $mainMod, 5, workspace, 5
-    bind = $mainMod, P, exec, hyprctl keyword decoration:blur:enabled 0
-    bindel = ,XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
-    bindel = ,XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
-    bindel = ,XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
-    bind = $mainMod, PRINT, exec, grim ~/Pictures/Screenshots/screenshot-$(date +%F-%T).png
-    bind = $mainMod SHIFT, PRINT, exec, grim -g "$(slurp)" ~/Pictures/Screenshots/screenshot-$(date +%F-%T).png
-    bind = $mainMod SHIFT, H, exec, hydramesh-toggle
-    bind = $mainMod SHIFT, K, exec, ~/.config/hypr/keybindings_cheatsheet.sh
-  '';
-
-  environment.etc."hypr/hyprpaper.conf".text = ''
-    preload = /etc/hypr/wallpaper.jpg
-    wallpaper = ,/etc/hypr/wallpaper.jpg
-  '';
 
   environment.etc."polybar/config.ini".text = ''
     [bar/main]
@@ -154,488 +195,12 @@ in {
   '';
 
   environment.etc."polybar/cava.sh" = {
-    text = ''
-      #! /bin/bash
-
-      bar="▁▂▃▄▅▆▇█"
-      dict="s/;//g;"
-
-      # creating "dictionary" to replace char with bar
-      i=0
-      while [ $i -lt ${#bar} ]
-      do
-          dict="${dict}s/$i/${bar:$i:1}/g;"
-          i=$((i=i+1))
-      done
-
-      # write cava config
-      config_file="/tmp/polybar_cava_config"
-      echo "
-      [general]
-      bars = 10
-
-      [output]
-      method = raw
-      raw_target = /dev/stdout
-      data_format = ascii
-      ascii_max_range = 7
-      " > $config_file
-
-      # read stdout from cava
-      cava -p $config_file | while read -r line; do
-          echo $line | sed $dict
-      done
-    '';
+    source = ./cava.sh;
     mode = "0755";
   };
 
-  environment.etc."waybar/config".text = ''
-    [
-        {
-            // "layer": "top", // Waybar at top layer
-            // "position": "bottom", // Waybar position (top|bottom|left|right)
-            "height": 30, // Waybar height (to be removed for auto height)
-            // "width": 1280, // Waybar width
-            "spacing": 4, // Gaps between modules (4px)
-            // Choose the order of the modules
-            // "modules-left": ["idle_inhibitor", "hyprland/workspaces", "hyprland/submap", "hyprland/scratchpad", "custom/media"],
-            "modules-left": ["idle_inhibitor", "hyprland/workspaces", "hyprland/submap", "hyprland/scratchpad"],
-            // "modules-center": ["hyprland/window"],
-            // "modules-center": ["custom/playerinfo","custom/cava"],
-            "modules-center": ["custom/playerinfo"],
-            // "modules-center": [],
-            // "modules-right": ["mpd", "idle_inhibitor", "pulseaudio", "network", "cpu", "memory", "temperature", "backlight", "keyboard-state", "hyprland/language", "battery", "battery#bat2", "clock", "tray"],
-            "modules-right": ["pulseaudio", "network", "cpu", "memory", "temperature", "backlight", "keyboard-state", "battery", "battery#bat2", "clock", "tray"],
-            // "margin-top": 10,
-            "margin-left": 20,
-            "margin-right": 20,
-            // Modules configuration
-            // "hyprland/workspaces": {
-            //     "disable-scroll": true,
-            //     "all-outputs": true,
-            //     "warp-on-scroll": false,
-            //     "format": "{name}: {icon}",
-            //     "format-icons": {
-            //         "1": "",
-            //         "2": "",
-            //         "3": "",
-            //         "4": "",
-            //         "5": "",
-            //         "urgent": "",
-            //         "focused": "",
-            //         "default": ""
-            //     }
-            // },
-            "keyboard-state": {
-                "numlock": true,
-                "capslock": true,
-                "format": "{name} {icon}",
-                "format-icons": {
-                    "locked": "",
-                    "unlocked": ""
-                }
-            },
-            "hyprland/submap": {
-                "format": "<span style=\"italic\">{}</span>"
-            },
-            "hyprland/scratchpad": {
-                "format": "{icon} {count}",
-                "show-empty": false,
-                "format-icons": ["", ""],
-                "tooltip": true,
-                "tooltip-format": "{app}: {title}"
-            },
-            "idle_inhibitor": {
-                "format": "{icon}",
-                "format-icons": {
-                    "activated": "󰋘",
-                    "deactivated": "󰋙"
-                }
-            },
-            "tray": {
-                // "icon-size": 21,
-                "spacing": 10
-            },
-            "clock": {
-                // "timezone": "America/New_York",
-                "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
-                "format-alt": "{:%Y-%m-%d}"
-            },
-            "cpu": {
-                // "format": " {usage}%",
-                "format": "󰒆 {usage}%",
-                // "format": "󱇙 {usage}%",
-                // "format": "󰋱 {usage}%",
-                // "format": "  {usage}%",
-                // "format": "󰍛 {usage}%",
-                "tooltip": true
-            },
-            "memory": {
-                // "format": " {}%"
-                // "format": " {}%"
-                // "format": " {}%"
-                // "format": "  {}%"
-                // "format": "󱊖 {}%"
-                // "format": "󰉹  {}%"
-                // "format": "󰒋  {}%"
-                "format": "󰇖 {}%"
-            },
-            "temperature": {
-                // "thermal-zone": 2,
-                // "hwmon-path": "/sys/class/hwmon/hwmon2/temp1_input",
-                "critical-threshold": 80,
-                // "format-critical": "{temperatureC}°C {icon}",
-                "format": "{icon} {temperatureC}󰔄",
-                "format-icons": ["󰸄", "󱃃", "󰸁"]
-            },
-            "backlight": {
-                // "device": "acpi_video1",
-                "format": "{icon} {percent}%",
-                "format-icons": ["", "", "", "", "", "", "", "", ""]
-            },
-            "battery": {
-                "states": {
-                    // "good": 95,
-                    "warning": 30,
-                    "critical": 15
-                },
-                "format": "{icon}  {capacity}%",
-                "format-charging": "{icon}  {capacity}%",
-                "format-plugged": "{icon}  {capacity}%",
-                "format-alt": "{icon}  {time}",
-                // "format-good": "", // An empty format will hide the module
-                // "format-full": "",
-                "format-icons": ["", "", "", "", ""]
-            },
-            "battery#bat2": {
-                "bat": "BAT2"
-            },
-            "network": {
-                // "interface": "wlp2*", // (Optional) To force the use of this interface
-                "format-wifi": "  {essid} ({signalStrength}%)",
-                "format-ethernet": "󰌗 {ipaddr}/{cidr}",
-                "tooltip-format": "{ifname} via {gwaddr}",
-                "format-linked": "{ifname} (No IP)",
-                "format-disconnected": "󰏝",
-                // "format-disconnected": "⚠ Disconnected",
-                // "format-disconnected": "󰤮",
-                // "format-disconnected": "󰤭",
-                "format-alt": "{ifname}: {ipaddr}/{cidr}"
-            },
-            "pulseaudio": {
-                // "scroll-step": 1, // %, can be a float
-                // "format": "{volume}% {icon} {format_source}",
-                "format": "{icon} {volume}%",
-                // "format-bluetooth": "{volume}% {icon}󰂯 {format_source}",
-                "format-bluetooth": "{volume}% {icon}",
-                "format-bluetooth-muted": "󰸈 {icon}",
-                "format-muted": "󰸈",
-                "format-source": "{volume}% ",
-                "format-source-muted": "",
-                "format-icons": {
-                    "headphone": "󰋋",
-                    "hands-free": "󰋌",
-                    "headset": "󰋎",
-                    "phone": "",
-                    "portable": "",
-                    "car": "",
-                    "default": ["", "", ""]
-                },
-                "on-click": "pavucontrol"
-            },
-            "custom/playerinfo": {
-                "format": "&lt; {} &gt;",
-                "exec": "/etc/waybar/playerinfo.sh",
-                "escape": true,
-                "return-type": "json",
-                "interval": 1,
-                "tooltip": true,
-                "on-click-middle": "playerctl play-pause",
-                "on-click-right": "playerctl next",
-                "on-click-left": "playerctl previous"
-            }
-        },
-        {
-            "name": "overlay",
-            "layer": "bottom", // Waybar at top layer
-            "position": "top", // Waybar position (top|bottom|left|right)
-            "height": 30, // Waybar height (to be removed for auto height)
-            "modules-center": ["custom/cava"],
-            "margin-top": -30,
-            "exclusive": false,
-            "passtrough": true,
-            "width": 300,
-            "custom/cava": {
-                "format": "{}",
-                "exec": "/etc/waybar/cava.sh"
-            }
-        }
-    ]
-  '';
-
-  environment.etc."waybar/style.css".text = ''
-    * {
-        font-family: "GohuFont uni11 Nerd Font", "Noto Sans CJK KR", "Noto Sans CJK JP", Roboto, Helvetica, Arial, sans-serif;
-        font-size: 13px;
-    }
-
-    window#waybar.overlay {
-        background-color: rgba(0, 0, 0, 0);
-        color: #ffffff;
-    }
-
-    window#waybar {
-        background-color: rgba(43, 48, 59, 0.7);
-        color: #ffffff;
-        transition-property: background-color;
-        transition-duration: .5s;
-    }
-
-    window#waybar.hidden {
-        opacity: 0.2;
-    }
-
-    /*
-    window#waybar.empty {
-        background-color: transparent;
-    }
-    window#waybar.solo {
-        background-color: #FFFFFF;
-    }
-    */
-
-    button {
-        /* Use box-shadow instead of border so the text isn't offset */
-        box-shadow: inset 0 -3px transparent;
-        /* Avoid rounded borders under each button name */
-        border: none;
-        border-radius: 0;
-    }
-
-    /* https://github.com/Alexays/Waybar/wiki/FAQ#the-workspace-buttons-have-a-strange-hover-effect */
-    button:hover {
-        background: inherit;
-    }
-
-    #workspaces button {
-        padding: 0 10px;
-        background-color: transparent;
-        color: #ffffff;
-    }
-
-    #workspaces button:hover {
-        background: rgba(0, 0, 0, 0.5);
-    }
-
-    #workspaces button.focused {
-        background-color: #34424D;
-        box-shadow: inset 0 -3px #2980b9;
-    }
-
-    #workspaces button.urgent {
-        box-shadow: inset 0 -3px #eb4d4b;
-    }
-
-    #mode {
-        background-color: #64727D;
-        border-bottom: 3px solid #ffffff;
-    }
-
-    #clock,
-    #battery,
-    #cpu,
-    #memory,
-    #disk,
-    #temperature,
-    #backlight,
-    #network,
-    #pulseaudio,
-    #wireplumber,
-    #custom-media,
-    #tray,
-    #mode,
-    #idle_inhibitor,
-    #scratchpad,
-    #custom-playerinfo,
-    #mpd {
-        padding: 0 10px;
-        color: #ffffff;
-    }
-
-    #window,
-    #workspaces {
-        margin: 0 4px;
-    }
-
-    /* If workspaces is the leftmost module, omit left margin */
-    .modules-left > widget:first-child > #workspaces {
-        margin-left: 0;
-    }
-
-    /* If workspaces is the rightmost module, omit right margin */
-    .modules-right > widget:last-child > #workspaces {
-        margin-right: 0;
-    }
-
-    #clock {
-    }
-
-    #battery {
-        box-shadow: inset 0 -3px #ffffff;
-    }
-
-    #battery.charging, #battery.plugged {
-        box-shadow: inset 0 -3px #2980b9;
-    }
-
-    #custom-playerinfo {
-        box-shadow: inset 0 -3px #ffffff;
-        min-width: 300px;
-    }
-
-    #custom-cava {
-        font-size: 24px;
-        color: rgba(255, 255, 255, 0.7);
-    }
-
-    @keyframes blink {
-        to {
-            box-shadow: inset 0 -3px #ffffff;
-        }
-    }
-
-    #battery.critical:not(.charging) {
-        box-shadow: inset 0 -3px #eb4d4b;
-        animation-name: blink;
-        animation-duration: 0.5s;
-        animation-timing-function: linear;
-        animation-iteration-count: infinite;
-        animation-direction: alternate;
-    }
-
-    label:focus {
-        background-color: #000000;
-    }
-
-    #cpu {}
-    #memory {}
-    #disk {}
-    #backlight {}
-
-    #network {
-        box-shadow: inset 0 -3px #2980b9;
-    }
-
-    #network.disconnected {
-        box-shadow: inset 0 -3px #e0e0e0;
-    }
-
-    #pulseaudio {
-    }
-
-    #pulseaudio.muted {
-        background-color: #90b1b1;
-        color: #2a5c45;
-    }
-
-    #temperature {}
-    #temperature.critical {
-        box-shadow: inset 0 -3px #eb4d4b;
-    }
-
-    #tray {
-        background-color: #2980b9;
-    }
-
-    #tray > .passive {
-        -gtk-icon-effect: dim;
-    }
-
-    #tray > .needs-attention {
-        -gtk-icon-effect: highlight;
-        background-color: #eb4d4b;
-    }
-
-    #idle_inhibitor {}
-    #idle_inhibitor.activated {
-        background-color: #ecf0f1;
-        color: #2d3436;
-    }
-
-    #keyboard-state {
-        background: #97e1ad;
-        color: #000000;
-        padding: 0 0px;
-        margin: 0 5px;
-        min-width: 16px;
-    }
-
-    #keyboard-state > label {
-        padding: 0 5px;
-    }
-
-    #keyboard-state > label.locked {
-        background: rgba(0, 0, 0, 0.2);
-    }
-
-    #scratchpad {
-        background: rgba(0, 0, 0, 0.2);
-    }
-
-    #scratchpad.empty {
-    	background-color: transparent;
-    }
-  '';
-
-  environment.etc."waybar/cava.sh" = {
-    text = ''
-      #! /bin/bash
-
-      bar="▁▂▃▄▅▆▇█"
-      dict="s/;//g;"
-
-      # creating "dictionary" to replace char with bar
-      i=0
-      while [ $i -lt ${#bar} ]
-      do
-          dict="${dict}s/$i/${bar:$i:1}/g;"
-          i=$((i=i+1))
-      done
-
-      # write cava config
-      config_file="/tmp/waybar_cava_config"  # Renamed for clarity
-      echo "
-      [general]
-      bars = 10  # Matched to Polybar for consistency
-
-      [output]
-      method = raw
-      raw_target = /dev/stdout
-      data_format = ascii
-      ascii_max_range = 7
-      " > $config_file
-
-      # read stdout from cava
-      cava -p $config_file | while read -r line; do
-          echo $line | sed $dict
-      done
-    '';
-    mode = "0755";
-  };
-
-  environment.etc."waybar/playerinfo.sh" = {
-    text = ''
-      #! /bin/bash
-
-      text=$(playerctl metadata --format '{{artist}} - {{title}}')
-      maxlength=35
-      # if the text is longer than the max length, truncate it and add "..."
-      if [ ${#text} -gt $maxlength ]; then
-          text=${text:0:$maxlength-3}"..."
-      fi
-
-      playerctl metadata --format '{"text": "'"$text"'", "tooltip": "{{playerName}} : {{artist}} - {{title}}"}'
-    '';
+  environment.etc."live-audio-test.sh" = {
+    source = ./live-audio-test.sh;
     mode = "0755";
   };
 
