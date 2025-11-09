@@ -103,10 +103,10 @@
 
     devShells.${system}.default = pkgs.mkShell {
       packages = with pkgs; [
-        ardour audacity fluidsynth musescore guitarix
+        audacity fluidsynth musescore guitarix
         csound faust portaudio rtaudio supercollider qjackctl
         surge
-        pcmanfm vim brave
+        pcmanfm vim
       ];
     };
   };
