@@ -27,13 +27,14 @@
           ./modules/audio.nix
           ./modules/desktop.nix
           ./modules/users.nix
-          ./modules/installer.nix
           ./modules/branding.nix
           ({ config, pkgs, lib, ... }: {
             nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ]; # Allow insecure qtwebengine for build
 
             environment.systemPackages = with pkgs; [
               usbutils libusb1 alsa-firmware alsa-tools
+              dialog disko mkpasswd networkmanager # Moved from installer.nix
+              calamares-nixos # For Calamares installer
             ];
 
             hardware.graphics.enable = true;
@@ -87,6 +88,24 @@
               text = ''
                 mkdir -p /home/nixos/Pictures/Screenshots
                 chown nixos:users /home/nixos/Pictures/Screenshots
+              '';
+            };
+
+            # Add autostart for Calamares in DWM
+            system.activationScripts.calamaresAutostart = {
+              text = ''
+                mkdir -p /home/nixos/.config/autostart
+                cat > /home/nixos/.config/autostart/calamares.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Exec=pkexec calamares-nixos -d
+Name=Calamares Installer
+GenericName=NixOS Installer
+Icon=calamares
+Terminal=false
+StartupNotify=true
+EOF
+                chown -R nixos:users /home/nixos/.config
               '';
             };
 
