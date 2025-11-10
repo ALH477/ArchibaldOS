@@ -452,7 +452,6 @@ For issues, reference NixOS docs or Musnix/Hyprland wikis. This setup ensures re
 ---
 ## **Contributing & Community**
 
-- **Repo**: [github.com/xai/archibaldos](https://github.com/xai/archibaldos)
 - **Test Builds**: `nixos-rebuild dry-run --flake .#archibaldOS`
 - **PR Guidelines**: Add modules (e.g., ARM64 support), benchmarks, or plugins. Follow Nix style [NixOS Wiki: Modules].
 - **Resources**:
