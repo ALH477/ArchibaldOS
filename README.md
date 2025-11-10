@@ -2,6 +2,8 @@
 *Lean Real-Time Audio NixOS Distribution*  
 ![ArchibaldOS](modules/assets/logo.png)
 
+[ISO Download](https://archive.org/details/archibald-os)
+
 ArchibaldOS is a streamlined, real-time (RT) audio-focused Linux distribution based on NixOS. Optimized for musicians, sound designers, and DSP researchers, it prioritizes low-latency audio processing and MIDI workflows on x86_64 hardware. Built with the Musnix real-time kernel and KDE Plasma 6 desktop environment, ArchibaldOS delivers a lightweight, reproducible environment with essential audio tools. A graphical Calamares installer simplifies setup, and utilities like file managers, text editors, and audio applications ensure functionality without compromising its audio-centric design. Post-install optimizations via NixOS declarative configuration enable low-latency tuning, making it suitable for professional recording and synthesis.
 
 This README provides a technical overview of ArchibaldOS's architecture, design rationale, configuration details, and optimization guides. It draws from community best practices (e.g., Musnix GitHub, PipeWire docs, Linux Audio forums) to equip users with knowledge for reliable, low-jitter audio workflows.
