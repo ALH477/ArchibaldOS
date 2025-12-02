@@ -327,6 +327,101 @@ To prevent system freezes (e.g., UI lockups), isolate build cores and limit para
 
 ---
 
+# Container-Based Build Guide
+
+This section describes how to build ArchibaldOS inside a containerized environment to improve reproducibility and to isolate heavy cross-compilation toolchains from the host system.
+
+## Overview
+
+ArchibaldOS relies on multiple compiler toolchains and architecture-specific build steps. Containerizing the build environment ensures that all developers and CI systems use a consistent toolchain while avoiding host configuration drift. Containers also help manage the heavy CPU and memory demands of cross-compiling for multiple targets.
+
+## Prerequisites
+
+* Docker Engine or Podman (Docker compatibility mode)
+* At least 4 CPU cores (8 recommended)
+* At least 8 GB RAM (16–32 GB recommended for multi-architecture builds)
+* 20–40 GB available disk space
+
+## Building the Container Image
+
+From the project root:
+
+```sh
+docker build -f docker/Dockerfile -t archibaldos-build .
+```
+
+The resulting image includes system compiler dependencies, cross-compilers (if prebuilt), and all tools required by the ArchibaldOS build system.
+
+Initial cross-compiler builds for AArch64 or RISCV can take 20–60 minutes but are cached in Docker layers.
+
+## Running a Build
+
+Basic build:
+
+```sh
+docker run --rm -it \
+    -v "$PWD:/ArchibaldOS" \
+    -w /ArchibaldOS \
+    archibaldos-build \
+    make all
+```
+
+Parallel build with all available cores:
+
+```sh
+docker run --rm -it \
+    -v "$PWD:/ArchibaldOS" \
+    -w /ArchibaldOS \
+    archibaldos-build \
+    make -j$(nproc)
+```
+
+### Cross-compiling all architectures
+
+```sh
+docker run --rm -it \
+    -v "$PWD:/ArchibaldOS" \
+    -w /ArchibaldOS \
+    archibaldos-build \
+    make cross-all -j$(nproc)
+```
+
+Expect significantly higher CPU/memory usage during multi-target builds.
+
+## Cleaning Artifacts
+
+```sh
+docker run --rm -it \
+    -v "$PWD:/ArchibaldOS" \
+    -w /ArchibaldOS \
+    archibaldos-build \
+    make clean
+```
+
+Full cleanup (removes cross-compiler caches):
+
+```sh
+docker run --rm -it \
+    -v "$PWD:/ArchibaldOS" \
+    -w /ArchibaldOS \
+    archibaldos-build \
+    make distclean
+```
+
+Rebuilding toolchains after `distclean` may take 30–60 minutes depending on target architectures.
+
+## Reproducible Build Environments
+
+For consistent builds across machines or CI:
+
+* Tag container images (for example, `archibaldos-build:v1.0`)
+* Store the Dockerfile and version information under `docker/`
+* Publish container images if desired for team or CI use
+
+This ensures all future builds use the exact same compiler setup and dependency versions.
+
+---
+
 ## Build Targets
 
 The unified flake provides multiple configurations:
