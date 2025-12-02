@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Nix Flake](https://img.shields.io/badge/Built%20with-Nix-blue.svg)](https://nixos.org/)
 [![Multi-Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-green.svg)](https://nixos.org/)
-[![GitHub Issues](https://img.shields.io/github/issues/DeMoD-LLC/archibaldos)](https://github.com/DeMoD-LLC/archibaldos/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/DeMoD-LLC/archibaldos)](https://github.com/DeMoD-LLC/archibaldos/stargazers)
+[![GitHub Issues](https://img.shields.io/github/issues/ALH477/ArchibaldOS)](https://github.com/ALH477/ArchibaldOS/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/ALH477/ArchibaldOS)](https://github.com/ALH477/ArchibaldOS/stargazers)
 
 ![ArchibaldOS Logo](modules/assets/demod-logo.png)
 
