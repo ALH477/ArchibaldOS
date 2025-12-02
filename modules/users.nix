@@ -1,26 +1,25 @@
-{ config, pkgs, lib, ... }: let
-  wallpaperSrc = ../wallpaper.jpg;
-in {
+{ config, pkgs, lib, ... }: 
+
+{
+  # Production audio user (for installed systems)
   users.users.audio-user = {
     isNormalUser = true;
-    extraGroups = [ "audio" "jackaudio" "video" "wheel" ];
+    extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
     home = "/home/audio-user";
     createHome = true;
     shell = pkgs.bash;
-    packages = [
-      (pkgs.runCommand "wallpaper" {} ''
-        mkdir -p $out/Pictures
-        cp ${wallpaperSrc} $out/Pictures/wall.jpg
-      '')
-    ];
+    # Note: Initial password should be set during installation
   };
 
+  # Live ISO / installer user
   users.users.nixos = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "audio" "jackaudio" "video" ];
+    extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" ];
     initialPassword = "nixos";
-    # Removed shell definition to avoid conflict with flake.nix
+    home = "/home/nixos";
+    createHome = true;
   };
 
+  # Passwordless sudo for wheel group
   security.sudo.wheelNeedsPassword = false;
 }
