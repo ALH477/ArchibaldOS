@@ -1,51 +1,82 @@
 {
-  description = "Lean RT Audio ArchibaldOS: Minimal Oligarchy NixOS variant for real-time audio with Musnix, DWM";
+  description = "ArchibaldOS: Unified NixOS for real-time audio (x86_64 ISO + ARM SBC)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     musnix.url = "github:musnix/musnix";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
+    nixos-rk3588.url = "github:ryan4yin/nixos-rk3588";
+    nixos-rk3588.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, musnix, disko }: let
-    system = "x86_64-linux";
-    pkgs = import nixpkgs {
+  outputs = { self, nixpkgs, musnix, disko, nixos-rk3588 }: let
+    x86System = "x86_64-linux";
+    armSystem = "aarch64-linux";
+    
+    mkPkgs = system: import nixpkgs {
       inherit system;
       config.allowUnfree = true;
     };
 
-    wallpaperSrc = ./modules/assets/wallpaper.jpg;
-
   in {
     nixosConfigurations = {
-      archibaldOS = nixpkgs.lib.nixosSystem {
-        inherit system;
+      # === x86_64 Live ISO ===
+      archibaldOS-iso = nixpkgs.lib.nixosSystem {
+        system = x86System;
         modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
           musnix.nixosModules.musnix
+          ./modules/base.nix
           ./modules/audio.nix
           ./modules/desktop.nix
           ./modules/users.nix
           ./modules/branding.nix
           ({ config, pkgs, lib, ... }: {
-            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ]; # Allow insecure qtwebengine for build
+            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
 
+            # x86-specific audio config
+            musnix = {
+              enable = true;
+              kernel.realtime = true;
+              kernel.packages = pkgs.linuxPackages_latest_rt;
+              alsaSeq.enable = true;
+              rtirq.enable = true;
+              das_watchdog.enable = true;
+            };
+
+            # x86-specific audio packages (full suite)
             environment.systemPackages = with pkgs; [
               usbutils libusb1 alsa-firmware alsa-tools
-              dialog disko mkpasswd networkmanager # Moved from installer.nix
-              calamares-nixos # For Calamares installer
+              dialog disko mkpasswd networkmanager
+              # Audio software
+              audacity fluidsynth musescore guitarix
+              csound csound-qt faust portaudio rtaudio supercollider qjackctl
+              surge zrythm carla puredata cardinal helm zynaddsubfx vmpk qmidinet 
+              faust2alsa faust2csound faust2jack dragonfly-reverb calf
             ];
+
+            # x86 audio tuning
+            boot.kernelParams = [
+              "threadirqs"
+              "isolcpus=1-3"
+              "nohz_full=1-3"
+              "intel_idle.max_cstate=1"
+              "processor.max_cstate=1"
+            ];
+
+            boot.kernel.sysctl = {
+              "vm.swappiness" = lib.mkForce 0;
+              "fs.inotify.max_user_watches" = 600000;
+            };
+
+            powerManagement.cpuFreqGovernor = "performance";
 
             hardware.graphics.enable = true;
             hardware.graphics.extraPackages = with pkgs; [
-              mesa
-              vaapiIntel
-              vaapiVdpau
-              libvdpau-va-gl
-              intel-media-driver  # For Intel GPUs
-              # amdvlk  # Uncomment for AMD GPUs
+              mesa vaapiIntel vaapiVdpau libvdpau-va-gl amdvlk
             ];
+
             isoImage.squashfsCompression = "gzip -Xcompression-level 1";
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
@@ -53,19 +84,21 @@
               enable = true;
               asciiArt = true;
               splash = true;
-              wallpaper = true;
-              # waybarIcons = true;  # Removed: Waybar is Hyprland-specific
+              wallpapers = true;
             };
 
+            # Live ISO user setup
             users.users.nixos = {
+              isNormalUser = true;
               initialHashedPassword = lib.mkForce null;
+              initialPassword = "nixos";
               home = "/home/nixos";
               createHome = true;
-              extraGroups = [ "audio" "jackaudio" "video" "networkmanager" ];
+              extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" ];
               shell = lib.mkForce pkgs.bashInteractive;
             };
 
-            # Override audio-user as a minimal system user in live ISO (hides from SDDM, satisfies assertions)
+            # Disable audio-user in live ISO
             users.users.audio-user = lib.mkForce {
               isSystemUser = true;
               group = "audio-user";
@@ -73,60 +106,190 @@
             };
             users.groups.audio-user = {};
 
-            # Autologin to nixos user with DWM (X11)
-            services.displayManager.autoLogin.enable = true;
-            services.displayManager.autoLogin.user = "nixos";
-            services.displayManager.defaultSession = "none+dwm";  # Default to DWM
+            # Autologin
+            services.displayManager.autoLogin = {
+              enable = true;
+              user = "nixos";
+            };
 
-            # Ensure SDDM hides audio-user explicitly (redundant but safe)
             services.displayManager.sddm.settings = {
               Users.HideUsers = "audio-user";
             };
 
-            # Create screenshot directory for DWM in live ISO
             system.activationScripts.mkdirScreenshots = {
               text = ''
                 mkdir -p /home/nixos/Pictures/Screenshots
                 chown nixos:users /home/nixos/Pictures/Screenshots
               '';
             };
+          })
+        ];
+      };
 
-            # Add autostart for Calamares in DWM
-            system.activationScripts.calamaresAutostart = {
-              text = ''
-                mkdir -p /home/nixos/.config/autostart
-                cat > /home/nixos/.config/autostart/calamares.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Exec=pkexec calamares-nixos -d
-Name=Calamares Installer
-GenericName=NixOS Installer
-Icon=calamares
-Terminal=false
-StartupNotify=true
-EOF
-                chown -R nixos:users /home/nixos/.config
-              '';
+      # === Orange Pi 5 (RK3588) ===
+      archibaldOS-orangepi5 = nixpkgs.lib.nixosSystem {
+        system = armSystem;
+        modules = [
+          nixos-rk3588.nixosModules.orangepi5
+          musnix.nixosModules.musnix
+          ./modules/base.nix
+          ./modules/audio.nix
+          ./modules/desktop.nix
+          ./modules/users.nix
+          ./modules/branding.nix
+          ./modules/orange-pi-5.nix
+          ({ config, pkgs, lib, ... }: {
+            # ARM-specific: use board kernel, not RT
+            musnix = {
+              enable = true;
+              kernel.realtime = false;  # Use RK3588 kernel
+              rtirq = {
+                enable = true;
+                highList = "snd_usb_audio";
+              };
+              das_watchdog.enable = true;
             };
 
-            # Optional NVIDIA support (uncomment if needed)
-            # hardware.nvidia.modesetting.enable = true;
-            # hardware.nvidia.package = config.boot.kernelPackages.nvidiaPackages.stable;
-            # boot.kernelParams = [ "nvidia-drm.modeset=1" ];
+            # Lightweight audio packages for ARM cross-compilation
+            environment.systemPackages = with pkgs; [
+              jack2 qjackctl jack_capture
+              guitarix qtractor puredata
+              pavucontrol helvum qpwgraph jalv
+            ];
+
+            # ARM-specific kernel params
+            boot.kernelParams = [
+              "threadirqs"
+              "cpufreq.default_governor=performance"
+              "nohz_full=1-7"
+            ];
+
+            powerManagement.cpuFreqGovernor = "performance";
+
+            branding = {
+              enable = true;
+              asciiArt = true;
+              splash = false;  # Plymouth issues on ARM
+              wallpapers = true;
+            };
+
+            # Production audio-user
+            users.users.audio-user = {
+              isNormalUser = true;
+              extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
+            };
+
+            # Auto-login for SBC
+            services.displayManager.autoLogin = {
+              enable = true;
+              user = "audio-user";
+            };
+
+            nix.settings.experimental-features = [ "nix-command" "flakes" ];
+          })
+        ];
+      };
+
+      # === Generic ARM SBC ===
+      archibaldOS-arm-generic = nixpkgs.lib.nixosSystem {
+        system = armSystem;
+        modules = [
+          musnix.nixosModules.musnix
+          ./modules/base.nix
+          ./modules/audio.nix
+          ./modules/desktop.nix
+          ./modules/users.nix
+          ./modules/branding.nix
+          ({ config, pkgs, lib, ... }: {
+            # Same as Orange Pi 5 but without board-specific module
+            musnix = {
+              enable = true;
+              kernel.realtime = false;
+              rtirq.enable = true;
+              das_watchdog.enable = true;
+            };
+
+            environment.systemPackages = with pkgs; [
+              jack2 qjackctl guitarix qtractor puredata
+              pavucontrol helvum qpwgraph
+            ];
+
+            boot.kernelParams = [ "threadirqs" "cpufreq.default_governor=performance" ];
+            powerManagement.cpuFreqGovernor = "performance";
+
+            branding = {
+              enable = true;
+              asciiArt = true;
+              splash = false;
+              wallpapers = true;
+            };
+
+            users.users.audio-user = {
+              isNormalUser = true;
+              extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
+            };
+
+            services.displayManager.autoLogin = {
+              enable = true;
+              user = "audio-user";
+            };
+
+            nix.settings.experimental-features = [ "nix-command" "flakes" ];
+          })
+        ];
+      };
+
+      # === Server variant (headless) ===
+      archibaldOS-server = nixpkgs.lib.nixosSystem {
+        system = x86System;
+        modules = [
+          musnix.nixosModules.musnix
+          ./modules/base.nix
+          ./modules/server.nix
+          ./modules/users.nix
+          ({ config, pkgs, lib, ... }: {
+            musnix.enable = false;  # Disable audio on server
+            
+            users.users.admin = {
+              isNormalUser = true;
+              extraGroups = [ "wheel" "docker" ];
+              openssh.authorizedKeys.keys = [
+                # Add your SSH keys here
+              ];
+            };
+
+            nix.settings.experimental-features = [ "nix-command" "flakes" ];
           })
         ];
       };
     };
 
-    packages.${system}.installer = self.nixosConfigurations.archibaldOS.config.system.build.isoImage;
+    # Build outputs
+    packages = {
+      ${x86System} = {
+        iso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
+      };
+      ${armSystem} = {
+        orangepi5 = self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage;
+        generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
+      };
+    };
 
-    devShells.${system}.default = pkgs.mkShell {
-      packages = with pkgs; [
-        audacity fluidsynth musescore guitarix
-        csound faust portaudio rtaudio supercollider qjackctl
-        surge
-        pcmanfm vim
-      ];
+    # Development shells
+    devShells = {
+      ${x86System}.default = (mkPkgs x86System).mkShell {
+        packages = with (mkPkgs x86System); [
+          audacity ardour fluidsynth musescore guitarix
+          csound faust portaudio rtaudio supercollider qjackctl
+          surge pcmanfm vim
+        ];
+      };
+      
+      ${armSystem}.default = (mkPkgs armSystem).mkShell {
+        packages = with (mkPkgs armSystem); [
+          jack2 guitarix puredata vim
+        ];
+      };
     };
   };
 }
