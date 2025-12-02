@@ -624,6 +624,100 @@ DeMoD developers can extend with `nix develop github:ALH477/DeMoDulation` for SD
 
 ---
 
+## Adopting New ARM64 Hardware
+
+ArchibaldOS is designed for extensibility, making it straightforward to add support for new ARM64 boards beyond the currently optimized ones (e.g., Orange Pi 5 via nixos-rk3588). The project uses a modular hardware directory (`modules/`) where board-specific configurations live—such as `orange-pi-5.nix` for RK3588 SoCs. These modules handle kernel selection, device tree overlays, firmware, and platform tweaks while inheriting shared audio optimizations from `audio.nix`.
+
+To adopt a new ARM64 device:
+1. **Identify NixOS Support:** Check if the board has a community module in [nixos-hardware](https://github.com/NixOS/nixos-hardware) or similar flakes (e.g., for Raspberry Pi, Rockchip, or Amlogic). If not, you may need to create a custom module based on upstream U-Boot, kernel configs, and device trees.
+2. **Add to Flake Inputs:** In `flake.nix`, add the hardware flake as an input if needed (e.g., `nixos-hardware.url = "github:NixOS/nixos-hardware";`).
+3. **Create Hardware Module:** Add a file like `modules/<board-name>.nix` with imports for hardware-specific settings. Inherit from `base.nix` and `audio.nix`, but override ARM-specific options (e.g., disable PREEMPT_RT).
+4. **Define Build Target:** In `flake.nix`, add a new `nixosConfigurations.<board-name>` entry, including your module.
+5. **Build & Test:** Cross-compile from x86_64 (see "Building the ISO from Flakes") and flash the SD image. Verify with `rt-check` and `audio-latency-test`.
+
+### Nuances of Real-Time Kernel Support on ARM64
+Unlike x86_64, where PREEMPT_RT kernels provide full real-time preemption, ARM64 support is more nuanced:
+- **Kernel Limitations:** Many ARM boards use vendor-optimized kernels (e.g., Broadcom for Raspberry Pi), which may not fully support PREEMPT_RT patches. In ArchibaldOS, `musnix.kernel.realtime = false;` for ARM to ensure compatibility, relying instead on RTIRQ prioritization, DAS watchdog, and kernel params like `threadirqs` and `nohz_full` for low-latency audio.
+- **Performance Trade-offs:** Expect 1.5–5ms latencies (vs. sub-1ms on x86), with potential xruns under heavy load on older SoCs. Empirical tests show stable operation at 128–256 samples @ 48kHz, but avoid aggressive quanta (e.g., 32 samples) to prevent instability.
+- **Development Considerations:** Native builds on ARM are slow (hours vs. minutes on x86) due to limited CPU/RAM—cross-compile from a powerful x86 host. For real-time tweaks, test iteratively with `cyclictest` (aim for <50µs max latency). If the board lacks mainline kernel support, fallback to vendor trees may reduce RT capabilities further.
+
+### Example: Adding Raspberry Pi 3B Support
+The Raspberry Pi 3B (BCM2837, quad-core A53 @ 1.2GHz) is a great low-cost ARM64 entry point, with solid NixOS support via `nixos-hardware`. It achieves ~3–5ms RTL at 48kHz/128 samples for Guitarix or Pure Data, but expect occasional xruns on sustained loads due to its age and lack of full RT kernel.
+
+1. **Update flake.nix Inputs:**
+   ```nix
+   inputs = {
+     # ... existing inputs
+     nixos-hardware.url = "github:NixOS/nixos-hardware";
+   };
+   ```
+
+2. **Create modules/raspberry-pi-3.nix:**
+   ```nix
+   { config, pkgs, lib, ... }: {
+     imports = [
+       nixos-hardware.nixosModules.raspberry-pi-3
+     ];
+
+     # ARM-specific overrides
+     musnix = {
+       enable = true;
+       kernel.realtime = false;  # No PREEMPT_RT on BCM2837
+       rtirq.enable = true;
+       das_watchdog.enable = true;
+     };
+
+     # Kernel tweaks for RT audio
+     boot.kernelParams = [
+       "threadirqs"
+       "cpufreq.default_governor=performance"
+       "nohz_full=1-3"
+     ];
+     powerManagement.cpuFreqGovernor = "performance";
+
+     # Hardware: Enable UART, I2C if needed for audio hats
+     hardware.raspberry-pi."3".enableUART = true;  # Optional
+
+     # Lightweight packages (extend as needed)
+     environment.systemPackages = with pkgs; [
+       jack2 qjackctl guitarix puredata
+     ];
+
+     # Branding & desktop (lite for low RAM)
+     branding.splash = false;  # Plymouth incompatible
+   }
+   ```
+
+3. **Add Build Target in flake.nix:**
+   ```nix
+   nixosConfigurations.archibaldOS-rpi3 = nixpkgs.lib.nixosSystem {
+     system = "aarch64-linux";
+     modules = [
+       musnix.nixosModules.musnix
+       ./modules/base.nix
+       ./modules/audio.nix
+       ./modules/desktop.nix  # Optional: Disable for headless
+       ./modules/users.nix
+       ./modules/branding.nix
+       ./modules/raspberry-pi-3.nix
+       ({ config, pkgs, lib, ... }: {
+         # RPi-specific: Use SD image builder
+         sdImage.enable = true;
+         sdImage.imageName = "archibaldos-rpi3.img";
+       })
+     ];
+   };
+
+   packages."aarch64-linux".rpi3 = self.nixosConfigurations.archibaldOS-rpi3.config.system.build.sdImage;
+   ```
+
+4. **Build & Deploy:**
+   - Cross-compile: `nix build .#packages.aarch64-linux.rpi3 --system x86_64-linux --extra-platforms aarch64-linux -L`
+   - Flash: `sudo dd if=result/sd-image/*.img of=/dev/sdX bs=4M status=progress conv=fsync`
+   - Boot and test: `rt-check` should confirm RTIRQ; adjust quantum to 256 if xruns occur.
+
+> **Notes:** On RPI 3B (1GB RAM), disable Plasma (`services.desktopManager.plasma6.enable = false;`) for stability—use a WM like DWM. Real-time audio works for basic DSP (e.g., Pure Data patches), but complex sessions may hit CPU limits. For better RT, consider overclocking (via firmwareConfig) or upgrading to RPI 5. Development tip: Avoid native builds; cross-compilation from x86 cuts time from 2+ hours to ~30 minutes.
+
 ## Performance Benchmarks
 
 ### x86_64 (Intel i7, PREEMPT_RT kernel)
