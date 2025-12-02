@@ -9,7 +9,7 @@
 
 ![ArchibaldOS Logo](modules/assets/demod-logo.png)
 
-**ArchibaldOS** is a professional-grade, fully reproducible NixOS-based operating system engineered by DeMoD LLC for ultra-low-latency real-time audio production across x86_64 and ARM64 platforms. Built with the "minimal oligarchy" philosophy—prioritizing only essential components for peak performance—it delivers sub-5ms round-trip latency on hardware ranging from high-end x86 workstations to ARM single-board computers (Raspberry Pi 5, Orange Pi 5, Rock 5) and Apple Silicon Macs (M1/M2/M3 via Asahi Linux).
+**ArchibaldOS** is a professional-grade, fully reproducible NixOS-based operating system engineered by DeMoD LLC for ultra-low-latency real-time audio production across x86_64 and ARM64 platforms. Built with the "minimal oligarchy" philosophy—prioritizing only essential components for peak performance—it delivers sub-5ms round-trip latency on hardware ranging from low2high-end x86 workstations to ARM single-board computers (Raspberry Pi 3-5, Orange Pi 5, Rock 5, OPI zero2w) and Apple Silicon Macs (M1/M2/M3 via Asahi Linux).
 
 Tailored for musicians, audio engineers, sound designers, live performers, and embedded-audio developers, ArchibaldOS integrates Musnix real-time kernel optimizations, PipeWire/JACK professional audio routing, and KDE Plasma 6 into a lightweight, power-efficient, declaratively-configured package. What sets it apart? Bit-for-bit reproducibility across deployments, ensuring that your setup on a studio workstation matches exactly on a portable SBC—eliminating the "it works on my machine" syndrome that plagues traditional OSes. Trust us, once you experience deployment consistency at this level, you'll wonder how you ever managed without it.
 
