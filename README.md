@@ -323,7 +323,7 @@ To prevent system freezes (e.g., UI lockups), isolate build cores and limit para
    - For eval OOM: Break flake into smaller modules or use `--impure` if needed.
    - Monitor: `watch free -h` during build.
 
-> **Empirical Example:** On Framework 16 (8 cores, 24GB RAM + 32GB SWAP), `isolcpus=2-7` + `taskset -c 2-7 nix build ... --cores 6` compiled x86 + ARM in parallel without crashes. Total time: ~3 hours vs. 1.5 hours unconstrained. SWAP usage peaked at 28GB during linking.
+> **Example:** On Framework 16 (8 cores, 24GB RAM + 32GB SWAP), `isolcpus=2-7` + `taskset -c 2-7 nix build ... --cores 6` compiled x86 + ARM in parallel without crashes. Total time: ~3 hours vs. 1.5 hours unconstrained. SWAP usage peaked at 28GB during linking.
 
 ---
 
@@ -742,9 +742,71 @@ On this hardware, ArchibaldOS handles Pure Data patches with 100+ objects at ful
 - **Measured round-trip:** 3.5–4ms (with USB interface)
 - **Xrun-free:** Yes (occasional under heavy load)
 
-Empirically, this enables portable live setups that rival x86 performance at a fraction of the power draw (under 10W vs. 100W+). DeMoDulation reports 0.67–2.10ms RTL at 96–192kHz across profiles.
+this enables portable live setups that rival x86 performance at a fraction of the power draw (under 10W vs. 100W+). DeMoDulation reports 0.67–2.10ms RTL at 96–192kHz across profiles.
 
 ---
+
+## Configuration Editors and Managers for Beginners
+
+If you're new to NixOS and flakes, diving straight into editing `flake.nix` or `configuration.nix` with a plain text editor can feel overwhelming—like trying to compose a symphony without knowing the notes. ArchibaldOS embraces Nix's declarative power, but the maintainer (that's us at DeMoD LLC) prefers raw text editing and won't integrate or maintain GUI tools in the core repo. We get it, though: for your first time, a visual helper can make learning Nix feel less like wrestling a hydra and more like a guided tour. These tools act as training wheels, letting you explore options, search descriptions, and tweak settings without syntax errors derailing you.
+
+Think of this as your gentle introduction: start with a GUI to build confidence, then gradually peek under the hood at the generated Nix code. Over time, you'll outgrow them and embrace the full declarative magic. We've selected the most beginner-friendly options based on community recommendations (from NixOS Discourse, Reddit's r/NixOS, and the official wiki as of December 2025). They focus on simplicity, searchability, and integration with flakes where possible. All are installable via Nix for reproducibility.
+
+### Why Use a Config Editor as a Beginner?
+- **No Syntax Panic:** Visual trees and search bars let you browse 100,000+ NixOS options without memorizing types or modules.
+- **First-Time Wins:** Enable audio tweaks (e.g., PipeWire quantum) or add packages like Guitarix with clicks, then apply with `nixos-rebuild switch`.
+- **Learning Curve:** Tools show generated Nix code, helping you understand flakes. Once comfy, edit directly in VS Code with LSP support.
+- **Caveat:** GUIs shine for simple changes but struggle with complex flakes (e.g., multi-host setups). For ArchibaldOS's modular structure, use them for quick tests, then commit to Git.
+
+### Recommended Tools
+Here's a curated table of the best GUI editors/managers for NixOS beginners. We prioritized active projects with flake support, ease of install, and positive feedback from new users (e.g., "game-changer for non-coders" on r/NixOS). Install via `environment.systemPackages` in your config or `nix profile install` for user-only.
+
+| Tool | Description | Pros for Beginners | Cons | Flake Support | Install Command |
+|------|-------------|---------------------|------|---------------|-----------------|
+| **Nix-GUI**<br>(github.com/nix-gui/nix-gui) | A full settings app that explores the option hierarchy like a file browser. Edit values, view types/descriptions, and commit changes to modules. Mimics "System Settings" in other distros. | Tree-view navigation; built-in search; diffs changes before saving; teaches Nix mechanics gradually. Ideal for your first flake tweaks. | Copies config to `~/.config/nixgui` (backup original!); less polished for advanced flakes. | Partial (edits flake modules; enable flakes in NixOS). | `nix profile install github:nix-gui/nix-gui` (user) or add `pkgs.nix-gui` to systemPackages. |
+| **NixOS-Conf-Editor**<br>(github.com/snowfallorg/nixos-conf-editor) | GTK4/libadwaita app for searching/editing config attributes. Focuses on desktop NixOS setups with a clean, modern UI. | Simple search bar; one-click attribute changes; generates valid Nix; great for audio tweaks like `services.pipewire`. | Limited to single-file edits (export to flake); no deep module visualization. | Basic (edits config.nix; import to flake). | `nix profile install github:snowfallorg/nixos-conf-editor` or `pkgs.nixos-conf-editor`. |
+| **NixOS-Manager**<br>(discourse.nixos.org/t/nixos-manager) | Graphical manager with a screencast demo; handles config visualization and edits via a web-like interface. | Step-by-step UI; good for first-time module additions (e.g., desktop.audio); exports to Nix. | Older (2020); may need tweaks for flakes. | Limited (focuses on config.nix; adaptable to flakes). | Clone repo: `git clone https://github.com/nixos-manager/nixos-manager`; build with `nix-build`. |
+
+> **Community Pick:** Start with **Nix-GUI**—it's the most "noob-proof" for flakes, praised in 2025 Reddit threads for turning "I hate Nix syntax" into "Oh, that's declarative?" in under an hour. If you're on GNOME/KDE, pair it with VS Code + nixd LSP for hybrid editing (install via `pkgs.vscode-with-extensions`).
+
+### Step-by-Step Guide: Your First Config Edit (Beginner Mode)
+Let's walk through adding a simple change—like enabling the `performance` CPU governor for better audio latency—using Nix-GUI as your entry point. This assumes you've booted ArchibaldOS (e.g., from the live ISO) and have a basic flake setup. Treat this as a sandbox: experiment, then apply.
+
+1. **Prep Your Environment (5 mins):**
+   - Boot into ArchibaldOS as `nixos` or `audio-user`.
+   - Open a terminal (Konsole in Plasma): `nix shell nixpkgs#git` (if not installed).
+   - Clone a working copy: `git clone https://github.com/DeMoD-LLC/archibaldos.git ~/archibaldos-test && cd ~/archibaldos-test`.
+   - Enable flakes if needed: Edit `flake.nix` (or use `sudo nano /etc/nixos/configuration.nix`) to add `nix.settings.experimental-features = [ "nix-command" "flakes" ];`, then `sudo nixos-rebuild switch`.
+
+2. **Install the Tool (2 mins):**
+   - For Nix-GUI: `nix profile install github:nix-gui/nix-gui`.
+   - Launch: Search "Nix-GUI" in your menu or run `nix run ~/.local/state/nix/profiles/profile/bin/nix-gui`.
+   - It auto-detects your config path (e.g., `/etc/nixos` or your flake dir). If prompted, point it to `~/archibaldos-test/flake.nix`.
+
+3. **Explore & Edit (10 mins):**
+   - **Browse Options:** In the tree view, navigate to `powerManagement` > `cpuFreqGovernor`. See the description: "Sets the policy to use when choosing the CPU frequency."
+   - **Make a Change:** Select `performance` from the dropdown. The tool shows a preview: `{ powerManagement.cpuFreqGovernor = "performance"; }`.
+   - **Search for Audio Goodies:** Type "pipewire quantum" in the search bar. Find `services.pipewire.extraConfig` and set `default.clock.quantum = 128;` for stable low-latency.
+   - **Diff & Learn:** Hit "Preview Changes"—it generates the Nix snippet. Read the tooltip: "This isolates audio buffers for <3ms latency on ARM."
+
+4. **Apply & Test (5 mins):**
+   - Save: Nix-GUI commits to a module file (e.g., `modules/audio.nix`). Review the diff.
+   - Rebuild: `sudo nixos-rebuild switch --flake .#archibaldOS-iso` (adjust for your host).
+   - Verify: Run `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor` (should output "performance"). Test audio: Launch Guitarix and monitor xruns with `jack_iodelay`.
+   - Rollback if Needed: `sudo nixos-rebuild switch --rollback`. No harm done!
+
+5. **Level Up: Peek at the Code**
+   - Open the generated file in Kate/VS Code: `code modules/audio.nix`.
+   - Install nixd LSP: Add `pkgs.nixd` to your devShell in `flake.nix`, then `nix develop`. Now get autocompletion—your bridge to text-only editing.
+   - Pro Tip: Use Git (`git init` in your dir) to track changes. Commit before/after: `git add . && git commit -m "Added performance governor via Nix-GUI"`.
+
+### Next Steps: From Beginner to Nix Wizard
+- **Week 1 Goal:** Use the GUI for 3–5 changes (e.g., add Helvum, tweak branding). Copy-paste snippets into your flake.
+- **Resources:** Watch Nix-GUI's usage video on GitHub; read the NixOS manual's options search (search.nixos.org).
+- **When to Ditch the GUI:** Once you're comfy searching options manually (`man configuration.nix`), switch to Helix/Vim with nixpkgs-fmt for formatting.
+- **Maintainer Note:** These tools are community gems, but DeMoD sticks to plain flakes for purity. If you hit snags, file an issue—we'll point you to docs, not debug GUIs.
+
+This setup turns your first ArchibaldOS tweaks into a win. Ready to jam? Fire up that editor and tune your latency—your guitar rig (or SDR setup) awaits.
 
 ## Contributing
 
