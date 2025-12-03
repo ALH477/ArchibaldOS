@@ -5,7 +5,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     musnix.url = "github:musnix/musnix";
-    streamdb.url = "path:../../hydramesh/streamdb";
+    streamdb.url = "path:../../HydraMesh/streamdb";
     streamdb.inputs.nixpkgs.follows = "nixpkgs";
   };
 
