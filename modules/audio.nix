@@ -1,3 +1,4 @@
+# modules/audio.nix
 { config, pkgs, lib, ... }:
 
 let
@@ -42,10 +43,10 @@ in {
     "processor.max_cstate=1"
   ];
 
-boot.kernel.sysctl = {
-  "vm.swappiness" = lib.mkForce 0;
-  "fs.inotify.max_user_watches" = 600000;
-};
+  boot.kernel.sysctl = {
+    "vm.swappiness" = lib.mkForce 0;
+    "fs.inotify.max_user_watches" = 600000;
+  };
 
   environment.etc."sysctl.d/99-audio.conf".text = ''
     dev.rtc.max-user-freq = 2048
