@@ -1,3 +1,4 @@
+# flake.nix
 {
   description = "ArchibaldOS: Unified NixOS for real-time audio (x86_64 ISO + ARM SBC)";
 
@@ -142,7 +143,7 @@
             # ARM-specific: use board kernel, not RT
             musnix = {
               enable = true;
-              kernel.realtime = false;  # Use RK3588 kernel
+              kernel.realtime = false;
               rtirq = {
                 enable = true;
                 highList = "snd_usb_audio";
@@ -169,7 +170,7 @@
             branding = {
               enable = true;
               asciiArt = true;
-              splash = false;  # Plymouth issues on ARM
+              splash = false;
               wallpapers = true;
             };
 
@@ -201,7 +202,6 @@
           ./modules/users.nix
           ./modules/branding.nix
           ({ config, pkgs, lib, ... }: {
-            # Same as Orange Pi 5 but without board-specific module
             musnix = {
               enable = true;
               kernel.realtime = false;
@@ -239,6 +239,114 @@
         ];
       };
 
+      # === Raspberry Pi 3 Model B (Headless Optimized) ===
+      archibaldOS-rpi3b = nixpkgs.lib.nixosSystem {
+        system = armSystem;
+        modules = [
+          "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
+          musnix.nixosModules.musnix
+          ./modules/base.nix
+          ./modules/audio.nix
+          ./modules/users.nix
+          ({ config, pkgs, lib, ... }: {
+            boot.loader.grub.enable = false;
+            boot.loader.raspberryPi = {
+              enable = true;
+              version = 3;
+              uboot.enable = true;
+              firmwareConfig = ''
+                dtparam=audio=on
+                force_turbo=1
+                arm_freq=1200
+                gpu_mem=16
+                disable_overscan=1
+              '';
+            };
+
+            hardware.enableRedistributableFirmware = true;
+
+            musnix = {
+              enable = true;
+              kernel.realtime = false;
+              rtirq = {
+                enable = true;
+                highList = "snd_usb_audio";
+              };
+              das_watchdog.enable = true;
+            };
+
+            services.pipewire.extraConfig.pipewire."92-low-latency" = lib.mkForce {
+              "context.properties" = {
+                "default.clock.rate" = 48000;
+                "default.clock.quantum" = 128;
+                "default.clock.min-quantum" = 128;
+                "default.clock.max-quantum" = 128;
+              };
+            };
+
+            security.pam.loginLimits = [
+              { domain = "@audio"; type = "-"; item = "rtprio"; value = "99"; }
+              { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
+              { domain = "@audio"; type = "-"; item = "nice"; value = "-19"; }
+            ];
+
+            users.groups.realtime = {};
+
+            environment.systemPackages = with pkgs; [
+              jack2 pipewire alsa-utils usbutils
+              vim git htop tmux
+              (pkgs.writeShellScriptBin "rt-check" ''
+                #!/usr/bin/env bash
+                echo "=== RT Check (RPi3B) ==="
+                uname -r
+                cat /sys/kernel/realtime || echo "RT not enabled"
+                ulimit -r
+                systemctl --user status pipewire
+              '')
+            ];
+
+            boot.kernelParams = lib.mkForce [
+              "threadirqs"
+              "isolcpus=2-3"
+              "nohz_full=2-3"
+              "rcu_nocbs=2-3"
+              "cpufreq.default_governor=performance"
+              "cma=128M"
+              "coherent_pool=1M"
+            ];
+
+            powerManagement.cpuFreqGovernor = "performance";
+
+            boot.kernel.sysctl = lib.mkForce {
+              "vm.swappiness" = 0;
+              "fs.inotify.max_user_watches" = 600000;
+            };
+
+            services.xserver.enable = false;
+            services.displayManager.enable = false;
+            hardware.opengl.enable = false;
+            hardware.graphics.enable = false;
+
+            users.users.audio = {
+              isNormalUser = true;
+              extraGroups = [ "wheel" "audio" "jackaudio" "realtime" "networkmanager" ];
+              initialPassword = "changeme";
+            };
+
+            services.displayManager.autoLogin.enable = false;
+
+            nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+            networking.hostName = "archibaldos-rpi3b";
+
+            sdImage.imageName = "archibaldos-rpi3b-headless.img";
+            sdImage.compressImage = true;
+
+            boot.kernelModules = [ "snd_usb_audio" "snd_bcm2835" ];
+          })
+        ];
+      };
+
       # === Server variant (headless) ===
       archibaldOS-server = nixpkgs.lib.nixosSystem {
         system = x86System;
@@ -248,7 +356,7 @@
           ./modules/server.nix
           ./modules/users.nix
           ({ config, pkgs, lib, ... }: {
-            musnix.enable = false;  # Disable audio on server
+            musnix.enable = false;
             
             users.users.admin = {
               isNormalUser = true;
@@ -264,7 +372,6 @@
       };
     };
 
-    # Build outputs
     packages = {
       ${x86System} = {
         iso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
@@ -272,10 +379,10 @@
       ${armSystem} = {
         orangepi5 = self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage;
         generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
+        rpi3b = self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage;
       };
     };
 
-    # Development shells
     devShells = {
       ${x86System}.default = (mkPkgs x86System).mkShell {
         packages = with (mkPkgs x86System); [
