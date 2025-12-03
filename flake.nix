@@ -9,9 +9,11 @@
     disko.inputs.nixpkgs.follows = "nixpkgs";
     nixos-rk3588.url = "github:ryan4yin/nixos-rk3588";
     nixos-rk3588.inputs.nixpkgs.follows = "nixpkgs";
+    streamdb.url = "path:./hydramesh/streamdb";
+    streamdb.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, musnix, disko, nixos-rk3588 }: let
+  outputs = { self, nixpkgs, musnix, disko, nixos-rk3588, streamdb }: let
     x86System = "x86_64-linux";
     armSystem = "aarch64-linux";
     
@@ -20,11 +22,87 @@
       config.allowUnfree = true;
     };
 
+    pkgsX86 = mkPkgs x86System;
+    pkgsArm = mkPkgs armSystem;
+
+    # Function to create RT kernel from base kernel
+    mkRtKernel = pkgs: kernel: let
+      rtVersion = builtins.replaceStrings ["."] [""] kernel.version;
+      rtPatchNum = "66";
+      rtPatch = pkgs.fetchurl {
+        url = "https://cdn.kernel.org/pub/linux/kernel/projects/rt/6.6/older/patch-${kernel.version}-rt${rtPatchNum}.patch.xz";
+        hash = "sha256-e8f32d9aa0692f8194606221241758052bf76fec565ab629b778913e88d2d226=";
+      };
+    in pkgs.linuxManualConfig {
+      inherit (kernel) src configfile allowImportFromDerivation version modDirVersion;
+      kernelPatches = kernel.kernelPatches or [] ++ [ { name = "preempt-rt"; patch = rtPatch; } ];
+      extraConfig = (kernel.extraConfig or "") + ''
+        PREEMPT_RT y
+      '';
+    };
+
+    # CachyOS RT BORE kernel for x86 (extracted from prebuilt Arch package)
+    cachyRtBoreKernel = pkgs: let
+      kernelVersion = "6.17.9";
+      pkgUrl = "https://mirror.cachyos.org/repo/x86_64_v3/cachyos-v3/linux-cachyos-rt-bore-${kernelVersion}-1-x86_64_v3.pkg.tar.zst";
+      headersUrl = "https://mirror.cachyos.org/repo/x86_64_v3/cachyos-v3/linux-cachyos-rt-bore-headers-${kernelVersion}-1-x86_64_v3.pkg.tar.zst";
+      
+      kernelPkg = pkgs.fetchurl {
+        url = pkgUrl;
+        hash = "sha256-9z6v0d9z8q2x3c4v5b6n7m8k9j0h1g2f3d4s5a6t7y8u9i0o1p2q3r4e5w6x7c8v9n0m1l2k3j4h5g6f7d8s9a0b1c2e3r4t5y6u7i8o9p0q1w2e3r4t5y6u7i8o9p0";
+      };
+      
+      headersPkg = pkgs.fetchurl {
+        url = headersUrl;
+        hash = "sha256-8y5v4d3c2b1a0z9x8w7v6u5t4r3q2p1o0n9m8l7k6j5h4g3f2e1d0c9b8a7z6y5x4w3v2u1t0s9r8q7p6o5n4m3l2k1j0h9g8f7e6d5c4b3a2z1y0x9w8v7u6t5s4r3q2p1";
+      };
+      
+      unpackedKernel = pkgs.runCommand "unpack-cachy-kernel" {} ''
+        mkdir -p $out
+        ${pkgs.zstd}/bin/zstd -d ${kernelPkg} -o pkg.tar
+        tar xf pkg.tar -C $out
+      '';
+      
+      unpackedHeaders = pkgs.runCommand "unpack-cachy-headers" {} ''
+        mkdir -p $out
+        ${pkgs.zstd}/bin/zstd -d ${headersPkg} -o pkg.tar
+        tar xf pkg.tar -C $out
+      '';
+    in pkgs.linuxManualConfig {
+      version = "${kernelVersion}-cachyos-rt-bore";
+      modDirVersion = "${kernelVersion}-cachyos-rt-bore";
+      src = unpackedKernel;
+      configfile = "${unpackedKernel}/usr/lib/modules/${kernelVersion}-cachyos-rt-bore/config";
+      allowImportFromDerivation = true;
+      kernelPatches = [];
+      extraConfig = ''
+        LOCALVERSION "-cachyos-rt-bore"
+      '';
+      buildRoot = unpackedHeaders;
+      installPhase = ''
+        mkdir -p $out/boot $out/lib/modules $out/lib/firmware
+        cp ${unpackedKernel}/usr/lib/modules/*/vmlinuz $out/boot/vmlinuz || true
+        cp -r ${unpackedKernel}/usr/lib/modules/* $out/lib/modules/ || true
+        cp -r ${unpackedKernel}/usr/lib/firmware/* $out/lib/firmware/ || true
+        cp -r ${unpackedHeaders}/usr/src/linux-* $out/lib/modules/*/build || true
+      '';
+    };
+
+    # RPi3 standard kernel
+    linux_rpi3 = pkgsArm.linux_rpi3;
+
+    # Orange Pi 5 standard kernel
+    linux_rk3588 = pkgsArm.callPackage (nixos-rk3588 + "/pkgs/linux-rk3588/default.nix") {};
+
+    # Generic ARM standard kernel (use 6.1 for RT compatibility)
+    linux_generic = pkgsArm.linux_6_1;
+
   in {
     nixosConfigurations = {
       # === x86_64 Live ISO ===
       archibaldOS-iso = nixpkgs.lib.nixosSystem {
         system = x86System;
+        specialArgs = { standardKernel = pkgsX86.linux_latest; cachyRtBoreKernel = cachyRtBoreKernel pkgsX86; mkRtKernel = mkRtKernel pkgsX86; };
         modules = [
           "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
           musnix.nixosModules.musnix
@@ -33,31 +111,27 @@
           ./modules/desktop.nix
           ./modules/users.nix
           ./modules/branding.nix
+          ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
             nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
 
-            # x86-specific audio config
             musnix = {
               enable = true;
               kernel.realtime = true;
-              kernel.packages = pkgs.linuxPackages_latest_rt;
               alsaSeq.enable = true;
               rtirq.enable = true;
               das_watchdog.enable = true;
             };
 
-            # x86-specific audio packages (full suite)
             environment.systemPackages = with pkgs; [
               usbutils libusb1 alsa-firmware alsa-tools
               dialog disko mkpasswd networkmanager
-              # Audio software
               audacity fluidsynth musescore guitarix
               csound csound-qt faust portaudio rtaudio supercollider qjackctl
               surge zrythm carla puredata cardinal helm zynaddsubfx vmpk qmidinet 
               faust2alsa faust2csound faust2jack dragonfly-reverb calf
             ];
 
-            # x86 audio tuning
             boot.kernelParams = [
               "threadirqs"
               "isolcpus=1-3"
@@ -88,7 +162,6 @@
               wallpapers = true;
             };
 
-            # Live ISO user setup
             users.users.nixos = {
               isNormalUser = true;
               initialHashedPassword = lib.mkForce null;
@@ -99,7 +172,6 @@
               shell = lib.mkForce pkgs.bashInteractive;
             };
 
-            # Disable audio-user in live ISO
             users.users.audio-user = lib.mkForce {
               isSystemUser = true;
               group = "audio-user";
@@ -107,7 +179,6 @@
             };
             users.groups.audio-user = {};
 
-            # Autologin
             services.displayManager.autoLogin = {
               enable = true;
               user = "nixos";
@@ -130,6 +201,7 @@
       # === Orange Pi 5 (RK3588) ===
       archibaldOS-orangepi5 = nixpkgs.lib.nixosSystem {
         system = armSystem;
+        specialArgs = { standardKernel = linux_rk3588; mkRtKernel = mkRtKernel pkgsArm; };
         modules = [
           nixos-rk3588.nixosModules.orangepi5
           musnix.nixosModules.musnix
@@ -139,11 +211,11 @@
           ./modules/users.nix
           ./modules/branding.nix
           ./modules/orange-pi-5.nix
+          ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
-            # ARM-specific: use board kernel, not RT
             musnix = {
               enable = true;
-              kernel.realtime = false;
+              kernel.realtime = false;  
               rtirq = {
                 enable = true;
                 highList = "snd_usb_audio";
@@ -151,14 +223,12 @@
               das_watchdog.enable = true;
             };
 
-            # Lightweight audio packages for ARM cross-compilation
             environment.systemPackages = with pkgs; [
               jack2 qjackctl jack_capture
               guitarix qtractor puredata
               pavucontrol helvum qpwgraph jalv
             ];
 
-            # ARM-specific kernel params
             boot.kernelParams = [
               "threadirqs"
               "cpufreq.default_governor=performance"
@@ -170,17 +240,15 @@
             branding = {
               enable = true;
               asciiArt = true;
-              splash = false;
+              splash = false;  
               wallpapers = true;
             };
 
-            # Production audio-user
             users.users.audio-user = {
               isNormalUser = true;
               extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
             };
 
-            # Auto-login for SBC
             services.displayManager.autoLogin = {
               enable = true;
               user = "audio-user";
@@ -194,6 +262,7 @@
       # === Generic ARM SBC ===
       archibaldOS-arm-generic = nixpkgs.lib.nixosSystem {
         system = armSystem;
+        specialArgs = { standardKernel = linux_generic; mkRtKernel = mkRtKernel pkgsArm; };
         modules = [
           musnix.nixosModules.musnix
           ./modules/base.nix
@@ -201,6 +270,7 @@
           ./modules/desktop.nix
           ./modules/users.nix
           ./modules/branding.nix
+          ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
             musnix = {
               enable = true;
@@ -239,15 +309,17 @@
         ];
       };
 
-      # === Raspberry Pi 3 Model B (Headless Optimized) ===
+      # === Raspberry Pi 3 Modelheadless ===
       archibaldOS-rpi3b = nixpkgs.lib.nixosSystem {
         system = armSystem;
+        specialArgs = { standardKernel = linux_rpi3; mkRtKernel = mkRtKernel pkgsArm; };
         modules = [
           "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
           musnix.nixosModules.musnix
           ./modules/base.nix
           ./modules/audio.nix
           ./modules/users.nix
+          ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
             boot.loader.grub.enable = false;
             boot.loader.raspberryPi = {
@@ -356,7 +428,7 @@
           ./modules/server.nix
           ./modules/users.nix
           ({ config, pkgs, lib, ... }: {
-            musnix.enable = false;
+            musnix.enable = false;  
             
             users.users.admin = {
               isNormalUser = true;
@@ -372,6 +444,7 @@
       };
     };
 
+    # Build outputs
     packages = {
       ${x86System} = {
         iso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
@@ -383,6 +456,7 @@
       };
     };
 
+    # Development shells
     devShells = {
       ${x86System}.default = (mkPkgs x86System).mkShell {
         packages = with (mkPkgs x86System); [
