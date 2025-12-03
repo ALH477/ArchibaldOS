@@ -1,4 +1,4 @@
-# HydraMesh (formerly DeMoD-LISP / D-LISP) SDK for DeMoD Communication Framework (DCF)
+# HydraMesh (formerly DeMoD-LISP / D-LISP) SDK for DeMoD Communication Framework (DCF) WIP -a pain in my ass
 
 **Version 2.1.0** | **Updated: October 26, 2025**  
 **Developed by DeMoD LLC**
