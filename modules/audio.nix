@@ -11,7 +11,6 @@ let
 in {
   musnix.enable = true;
   musnix.kernel.realtime = true;
-  musnix.kernel.packages = pkgs.linuxPackages_latest_rt;
   musnix.alsaSeq.enable = true;
   musnix.rtirq.enable = true;
   musnix.das_watchdog.enable = true;
