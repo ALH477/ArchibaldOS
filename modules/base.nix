@@ -17,6 +17,11 @@
     settings = {
       PasswordAuthentication = lib.mkDefault false;
       PermitRootLogin = "no";
+      KexAlgorithms = [
+        "curve25519-sha256"
+        "curve25519-sha256@libssh.org"
+        "diffie-hellman-group-exchange-sha256"
+      ];
     };
   };
 
@@ -34,5 +39,21 @@
     automatic = lib.mkDefault true;
     dates = "weekly";
     options = "--delete-older-than 30d";
+  };
+
+  # Security hardening
+  security.sudo.extraRules = [
+    {
+      users = [ "audio-user" "nixos" "admin" ];
+      commands = [
+        { command = "${pkgs.nixos-rebuild}/bin/nixos-rebuild"; options = [ "NOPASSWD" ]; }
+        { command = "${pkgs.systemd}/bin/systemctl"; options = [ "NOPASSWD" ]; }
+        { command = "${pkgs.jack2}/bin/jack_control"; options = [ "NOPASSWD" ]; }
+      ];
+    }
+  ];
+
+  boot.kernel.sysctl = {
+    "kernel.unprivileged_userns_clone" = 0;
   };
 }
