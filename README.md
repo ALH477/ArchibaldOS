@@ -9,7 +9,7 @@
 
 ![ArchibaldOS Logo](modules/assets/demod-logo.png)
 
-**ArchibaldOS** is a professional-grade, fully reproducible NixOS-based operating system engineered by DeMoD LLC for ultra-low-latency real-time audio production across x86_64 and ARM64 platforms. Built with the "minimal oligarchy" philosophy—prioritizing only essential components for peak performance—it delivers sub-5ms round-trip latency on hardware ranging from low2high-end x86 workstations to ARM single-board computers (Raspberry Pi 3-5, Orange Pi 5, Rock 5, OPI zero2w) and Apple Silicon Macs (M1/M2/M3 via Asahi Linux).
+**ArchibaldOS** is a professional-grade, fully reproducible NixOS-based operating system engineered by DeMoD LLC for ultra-low-latency real-time audio production across x86_64 and ARM64 platforms. Built with the "minimal oligarchy" philosophy—prioritizing only essential components for peak performance—it delivers sub-5ms round-trip latency on hardware ranging from low- to high-end x86 workstations to ARM single-board computers (Raspberry Pi 3-5, Orange Pi 5, Rock 5, OPI zero2w) and Apple Silicon Macs (M1/M2/M3 via Asahi Linux).
 
 Tailored for musicians, audio engineers, sound designers, live performers, and embedded-audio developers, ArchibaldOS integrates Musnix real-time kernel optimizations, PipeWire/JACK professional audio routing, and KDE Plasma 6 into a lightweight, power-efficient, declaratively-configured package. What sets it apart? Bit-for-bit reproducibility across deployments, ensuring that your setup on a studio workstation matches exactly on a portable SBC—eliminating the "it works on my machine" syndrome that plagues traditional OSes. Trust us, once you experience deployment consistency at this level, you'll wonder how you ever managed without it.
 
@@ -209,6 +209,26 @@ nix build .#installerIso.apple-m2 -L
 # See INSTALL.md for detailed Apple Silicon instructions
 ```
 
+### ZIP-750 Edition (Ultra-Minimal)
+
+```bash
+# Build ~450-520 MB squashfs
+nix build .#packages.x86_64-linux.zip750 -L
+
+# Flash to ZIP-750 disk
+sudo dd if=result/archibaldos-zip750.squashfs of=/dev/sdX bs=4M conv=fsync
+```
+
+### VM Edition (Headless RT Audio Dev)
+
+```bash
+# Build VM image
+nix build .#packages.x86_64-linux.vm -L
+
+# Run in QEMU
+./result/bin/run-nixos-vm
+```
+
 ---
 
 ## Building the ISO from Flakes
@@ -327,22 +347,22 @@ To prevent system freezes (e.g., UI lockups), isolate build cores and limit para
 
 ---
 
-# Container-Based Build Guide
+## Container-Based Build Guide
 
 This section describes how to build ArchibaldOS inside a containerized environment to improve reproducibility and to isolate heavy cross-compilation toolchains from the host system.
 
-## Overview
+### Overview
 
 ArchibaldOS relies on multiple compiler toolchains and architecture-specific build steps. Containerizing the build environment ensures that all developers and CI systems use a consistent toolchain while avoiding host configuration drift. Containers also help manage the heavy CPU and memory demands of cross-compiling for multiple targets.
 
-## Prerequisites
+### Prerequisites
 
 * Docker Engine or Podman (Docker compatibility mode)
 * At least 4 CPU cores (8 recommended)
 * At least 8 GB RAM (16–32 GB recommended for multi-architecture builds)
 * 20–40 GB available disk space
 
-## Building the Container Image
+### Building the Container Image
 
 From the project root:
 
@@ -354,7 +374,7 @@ The resulting image includes system compiler dependencies, cross-compilers (if p
 
 Initial cross-compiler builds for AArch64 or RISCV can take 20–60 minutes but are cached in Docker layers.
 
-## Running a Build
+### Running a Build
 
 Basic build:
 
@@ -376,7 +396,7 @@ docker run --rm -it \
     make -j$(nproc)
 ```
 
-### Cross-compiling all architectures
+#### Cross-compiling all architectures
 
 ```sh
 docker run --rm -it \
@@ -388,7 +408,7 @@ docker run --rm -it \
 
 Expect significantly higher CPU/memory usage during multi-target builds.
 
-## Cleaning Artifacts
+### Cleaning Artifacts
 
 ```sh
 docker run --rm -it \
@@ -410,7 +430,7 @@ docker run --rm -it \
 
 Rebuilding toolchains after `distclean` may take 30–60 minutes depending on target architectures.
 
-## Reproducible Build Environments
+### Reproducible Build Environments
 
 For consistent builds across machines or CI:
 
@@ -441,6 +461,12 @@ nix build .#nixosConfigurations.archibaldOS-server.config.system.build.toplevel
 
 # DeMoD-specific: e-waste x86 profile
 nix build .#packages.x86_64-linux.demod-ewaste
+
+# ZIP-750 Edition (ultra-minimal)
+nix build .#packages.x86_64-linux.zip750
+
+# VM Edition (headless RT audio dev)
+nix build .#packages.x86_64-linux.vm
 ```
 
 ---
@@ -603,6 +629,20 @@ See [SBC-INSTALL.md](SBC-INSTALL.md) for detailed SBC instructions. For DeMoD Ra
 ### Apple Silicon
 
 See [INSTALL.md](INSTALL.md) for comprehensive Asahi Linux installation procedures.
+
+### ZIP-750 Edition
+
+1. Build: `nix build .#packages.x86_64-linux.zip750`
+2. Flash squashfs to ZIP-750 disk with `dd`.
+3. Boot → DWM with core audio tools.
+4. Insert second USB for full suite (lazy-load).
+
+### VM Edition
+
+1. Build: `nix build .#packages.x86_64-linux.vm`
+2. Run: `./result/bin/run-nixos-vm`
+3. SSH: `ssh audio-user@192.168.122.2` (key-based).
+4. Route host game audio via JACK (4713).
 
 ---
 
@@ -958,7 +998,7 @@ Note: DeMoDulation components are CC0 1.0 (public domain).
 ## Contact & Support
 
 - **Website:** https://demod.ltd
-- **GitHub Issues:** https://github.com/DeMoD-LLC/archibaldos/issues
+- **GitHub Issues:** https://github.com/ALH477/ArchibaldOS/issues
 - **Commercial Support:** contact@demod.ltd
 - **Twitter/X:** @DeMoDLLC
 
