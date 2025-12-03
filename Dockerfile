@@ -1,101 +1,118 @@
+# Dockerfile
 # ============================================================================
-# Stage 1: Base reproducible Nix environment (builder foundation)
-# Uses Debian-slim + manual Nix install for full control + stability.
+# Multi-platform build environment for ArchibaldOS
+# Supports: x86_64-linux, aarch64-linux (via QEMU), and cross-compilation
+# Enables building NixOS images on macOS, Windows (WSL), or any Docker host
 # ============================================================================
 
-FROM debian:stable-slim AS nix-env
+# Use official Nix image with multi-arch support
+FROM nixos/nix:latest AS nix-base
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV USER=builder
-ENV HOME=/home/builder
-
-# System dependencies
-RUN apt-get update && apt-get install -y \
-      curl \
-      ca-certificates \
-      sudo \
+# Install essential tools
+RUN apk add --no-cache \
       git \
-      xz-utils \
+      curl \
+      wget \
+      jq \
       bash \
-      bzip2 \
-      && rm -rf /var/lib/apt/lists/*
+      sudo \
+      openssh \
+      zstd \
+      qemu-system-aarch64 \
+      qemu-system-x86_64 \
+      binfmt-support \
+      && rm -rf /var/cache/apk/*
+
+# Register QEMU binfmt for cross-architecture execution
+RUN qemu-binfmt-conf.sh --qemu-path /usr/bin/qemu-aarch64 --persistent yes || true
+RUN qemu-binfmt-conf.sh --qemu-path /usr/bin/qemu-x86_64 --persistent yes || true
 
 # Create non-root user
-RUN useradd -m -s /bin/bash $USER && \
-    echo "$USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+RUN adduser -D -g '' builder && \
+    echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-USER $USER
-WORKDIR $HOME
+USER builder
+WORKDIR /home/builder
 
-# Install Nix (daemon)
-RUN sh <(curl -L https://nixos.org/nix/install) --daemon
-
-# Add Nix paths
-ENV PATH=$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH
-
-# Enable flakes globally
-RUN mkdir -p $HOME/.config/nix && \
-    echo "experimental-features = nix-command flakes" > $HOME/.config/nix/nix.conf
-
-
+# Configure Nix
+RUN mkdir -p /home/builder/.config/nix && \
+    echo "experimental-features = nix-command flakes" > /home/builder/.config/nix/nix.conf && \
+    echo "max-jobs = auto" >> /home/builder/.config/nix/nix.conf
 
 # ============================================================================
-# Stage 2: Import project files + prefetch flake inputs (reproducible caching)
-# Everything needed for deterministic future builds.
+# Stage 1: Clone and prefetch flake inputs
 # ============================================================================
+FROM nix-base AS flake-cache
 
-FROM nix-env AS flake-cache
-
-# ARG allows overriding branch or commit for reproducible CI
-ARG ARCHIBALDOS_REV=main
 ARG ARCHIBALDOS_REPO=https://github.com/ALH477/ArchibaldOS.git
+ARG ARCHIBALDOS_REV=main
 
-# Clone project at pinned or branch revision
-RUN git clone --branch $ARCHIBALDOS_REV $ARCHIBALDOS_REPO $HOME/ArchibaldOS
-
-WORKDIR $HOME/ArchibaldOS
-
-# Prefetch ALL flake inputs during image build:
-RUN nix flake archive --json > /dev/null
-
-
-
-# ============================================================================
-# Stage 3 (optional): CI mode — Build the ISO automatically.
-# This stage ONLY runs during docker build if triggered via:
-#   docker build --target iso-builder ...
-# ============================================================================
-
-FROM flake-cache AS iso-builder
+RUN git clone --branch $ARCHIBALDOS_REV $ARCHIBALDOS_REPO /home/builder/ArchibaldOS
 
 WORKDIR /home/builder/ArchibaldOS
 
-# Optional: expose configurable build target
-ARG BUILD_TARGET=packages.x86_64-linux.installer
-
-# Build the ISO non-interactively
-RUN nix build .#${BUILD_TARGET}
-
-
+# Prefetch and cache all flake inputs
+RUN nix flake update && \
+    nix flake archive --json > /dev/null
 
 # ============================================================================
-# Stage 4: Output container — contains ONLY the finished ISO.
-# Perfect for CI/CD artifact publishing.
+# Stage 2: Build x86_64 ISO (native)
 # ============================================================================
+FROM flake-cache AS iso-x86_64
 
-FROM scratch AS iso-artifact
+ARG BUILD_TARGET=packages.x86_64-linux.iso
 
-# Expose ISO
-COPY --from=iso-builder /home/builder/ArchibaldOS/result/iso/*.iso /archibaldos.iso
-
-
+RUN nix build .#${BUILD_TARGET} --print-build-logs
 
 # ============================================================================
-# Stage 5: Developer shell — fully cached environment for interactive use.
-# This is the default stage unless another --target is selected.
+# Stage 3: Build aarch64 images (via QEMU emulation)
+# ============================================================================
+FROM flake-cache AS images-arm64
+
+# Build all ARM64 targets
+RUN nix build .#packages.aarch64-linux.orangepi5 --print-build-logs && \
+    nix build .#packages.aarch64-linux.rpi3b --print-build-logs && \
+    nix build .#packages.aarch64-linux.generic --print-build-logs
+
+# ============================================================================
+# Stage 4: Output artifacts
+# ============================================================================
+FROM scratch AS artifacts
+
+# Copy x86_64 ISO
+COPY --from=iso-x86_64 /home/builder/ArchibaldOS/result/iso/*.iso /iso-x86_64/
+
+# Copy ARM64 images
+COPY --from=images-arm64 /home/builder/ArchibaldOS/result/sd-image/*.img* /arm64/
+COPY --from=images-arm64 /home/builder/ArchibaldOS/result/toplevel /arm64-generic/
+
+# ============================================================================
+# Stage 5: Developer shell (default)
 # ============================================================================
 FROM flake-cache AS dev-shell
 
 WORKDIR /home/builder/ArchibaldOS
 
-ENTRYPOINT ["/bin/bash"]
+# Auto-source Nix in interactive sessions
+RUN echo '. /nix/var/nix/profiles/default/etc/profile.d/nix.sh' >> /home/builder/.bashrc
+
+# Helper script
+RUN cat > /home/builder/welcome.sh << 'EOF'
+#!/bin/bash
+echo "ArchibaldOS Cross-Platform Build Environment"
+echo "==========================================="
+echo ""
+echo "Available targets:"
+echo "  x86_64 ISO: nix build .#packages.x86_64-linux.iso"
+echo "  Orange Pi 5: nix build .#packages.aarch64-linux.orangepi5"
+echo "  RPi 3B: nix build .#packages.aarch64-linux.rpi3b"
+echo "  Generic ARM: nix build .#packages.aarch64-linux.generic"
+echo ""
+echo "Outputs appear in ./result/"
+echo ""
+echo "Run 'nix flake update' to refresh inputs"
+EOF
+
+RUN chmod +x /home/builder/welcome.sh
+
+ENTRYPOINT ["/bin/bash", "-l", "-c", "/home/builder/welcome.sh && exec bash"]
