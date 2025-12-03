@@ -9,7 +9,7 @@
     disko.inputs.nixpkgs.follows = "nixpkgs";
     nixos-rk3588.url = "github:ryan4yin/nixos-rk3588";
     nixos-rk3588.inputs.nixpkgs.follows = "nixpkgs";
-    streamdb.url = "path:./hydramesh/streamdb";
+    streamdb.url = "path:./HydraMesh/streamdb";
     streamdb.inputs.nixpkgs.follows = "nixpkgs";
   };
 
