@@ -12,18 +12,7 @@
 
   powerManagement.enable = true;
 
-  services.openssh = {
-    enable = lib.mkDefault true;
-    settings = {
-      PasswordAuthentication = lib.mkDefault false;
-      PermitRootLogin = "no";
-      KexAlgorithms = [
-        "curve25519-sha256"
-        "curve25519-sha256@libssh.org"
-        "diffie-hellman-group-exchange-sha256"
-      ];
-    };
-  };
+  services.openssh.settings.PermitRootLogin = lib.mkDefault "no";
 
   environment.systemPackages = with pkgs; [
     vim wget curl git htop
