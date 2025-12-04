@@ -2,15 +2,24 @@
 { config, pkgs, lib, ... }:
 
 let
-  audioPackages = with pkgs; [
-    audacity fluidsynth musescore guitarix
+  # Core audio packages (ARM-safe)
+  baseAudioPackages = with pkgs; [
+    audacity fluidsynth guitarix
     csound csound-qt faust portaudio rtaudio supercollider qjackctl
-    surge zrythm carla puredata cardinal helm zynaddsubfx vmpk qmidinet 
-    faust2alsa faust2csound faust2jack dragonfly-reverb calf
+    zrythm carla puredata helm vmpk qmidinet 
+    faust2alsa faust2csound faust2jack calf
   ];
+
+  # x86_64-only packages (e.g. surge)
+  x86AudioPackages = with pkgs; [
+    surge
+  ];
+
+  # Final package list: base + x86-only if on x86_64
+  audioPackages = baseAudioPackages ++ lib.optionals pkgs.stdenv.hostPlatform.isx86_64 x86AudioPackages;
 in {
   musnix.enable = true;
-  musnix.kernel.realtime = true;
+  musnix.kernel.realtime = lib.mkDefault true;  # ARM configs override to false
   musnix.alsaSeq.enable = true;
   musnix.rtirq.enable = true;
   musnix.das_watchdog.enable = true;
@@ -79,5 +88,6 @@ in {
     options snd_usb_audio nrpacks=1 low_latency=1
   '';
 
+  # Final package list: ARM-safe + x86-only where applicable
   environment.systemPackages = audioPackages;
 }
