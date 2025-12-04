@@ -113,6 +113,8 @@
           ./modules/branding.nix
           ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+
             nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
 
             musnix = {
@@ -126,10 +128,10 @@
             environment.systemPackages = with pkgs; [
               usbutils libusb1 alsa-firmware alsa-tools
               dialog disko mkpasswd networkmanager
-              audacity fluidsynth musescore guitarix
+              audacity fluidsynth guitarix
               csound csound-qt faust portaudio rtaudio supercollider qjackctl
-              surge zrythm carla puredata cardinal helm zynaddsubfx vmpk qmidinet 
-              faust2alsa faust2csound faust2jack dragonfly-reverb calf
+              surge zrythm carla puredata helm vmpk qmidinet 
+              faust2alsa faust2csound faust2jack calf
             ];
 
             boot.kernelParams = [
@@ -139,7 +141,6 @@
               "intel_idle.max_cstate=1"
               "processor.max_cstate=1"
             ];
-
 
             powerManagement.cpuFreqGovernor = "performance";
 
@@ -209,6 +210,8 @@
           ./modules/orange-pi-5.nix
           ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+
             musnix = {
               enable = true;
               kernel.realtime = false;  
@@ -258,7 +261,7 @@
       # === Generic ARM SBC ===
       archibaldOS-arm-generic = nixpkgs.lib.nixosSystem {
         system = armSystem;
-        specialArgs = { standardKernel = linux_generic; kRtKernel = mkRtKernel pkgsArm; };
+        specialArgs = { standardKernel = linux_generic; mkRtKernel = mkRtKernel pkgsArm; };
         modules = [
           musnix.nixosModules.musnix
           ./modules/base.nix
@@ -268,6 +271,8 @@
           ./modules/branding.nix
           ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+
             musnix = {
               enable = true;
               kernel.realtime = false;
@@ -305,7 +310,7 @@
         ];
       };
 
-      # === Raspberry Pi 3 Modelheadless ===
+      # === Raspberry Pi 3 Model B (headless) ===
       archibaldOS-rpi3b = nixpkgs.lib.nixosSystem {
         system = armSystem;
         specialArgs = { standardKernel = linux_rpi3; mkRtKernel = mkRtKernel pkgsArm; };
@@ -317,22 +322,43 @@
           ./modules/users.nix
           ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+
+            # === Bootloader: Use extlinux + U-Boot (modern replacement) ===
             boot.loader.grub.enable = false;
-            boot.loader.raspberryPi = {
-              enable = true;
-              version = 3;
-              uboot.enable = true;
-              firmwareConfig = ''
-                dtparam=audio=on
-                force_turbo=1
-                arm_freq=1200
-                gpu_mem=16
-                disable_overscan=1
-              '';
+            boot.loader.generic-extlinux-compatible.enable = true;
+
+            fileSystems."/boot" = {
+              device = "/dev/disk/by-label/BOOT";
+              fsType = "vfat";
             };
+
+            # === Firmware & config.txt (replaces raspberryPi.firmwareConfig) ===
+            sdImage.populateFirmwareCommands = ''
+              # Copy Raspberry Pi 3 firmware
+              cp -r ${pkgs.raspberrypifw}/share/raspberrypi/boot/* $NIX_BUILD_TOP/boot/
+
+              # Create config.txt with overclock/audio settings
+              cat > $NIX_BUILD_TOP/boot/config.txt <<'EOF'
+              # ArchibaldOS RPi3B config
+              dtparam=audio=on
+              force_turbo=1
+              arm_freq=1200
+              gpu_mem=16
+              disable_overscan=1
+
+              # Kernel loading (extlinux will generate entry)
+              kernel=vmlinuz
+              initramfs initrd.img followkernel
+              EOF
+
+              # Ensure correct DTB
+              ln -s ${pkgs.raspberrypifw}/share/raspberrypi/boot/bcm2837-rpi-3-b.dtb $NIX_BUILD_TOP/boot/
+            '';
 
             hardware.enableRedistributableFirmware = true;
 
+            # === Musnix (non-RT on ARM) ===
             musnix = {
               enable = true;
               kernel.realtime = false;
@@ -343,6 +369,7 @@
               das_watchdog.enable = true;
             };
 
+            # === PipeWire low-latency ===
             services.pipewire.extraConfig.pipewire."92-low-latency" = lib.mkForce {
               "context.properties" = {
                 "default.clock.rate" = 48000;
@@ -352,7 +379,8 @@
               };
             };
 
-             security.pam.loginLimits = [
+            # === RT Limits ===
+            security.pam.loginLimits = [
               { domain = "@audio"; type = "-"; item = "rtprio"; value = "99"; }
               { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
               { domain = "@audio"; type = "-"; item = "nice"; value = "-19"; }
@@ -360,6 +388,7 @@
 
             users.groups.realtime = {};
 
+            # === Packages ===
             environment.systemPackages = with pkgs; [
               jack2 pipewire alsa-utils usbutils
               vim git htop tmux
@@ -373,6 +402,7 @@
               '')
             ];
 
+            # === Kernel Tuning ===
             boot.kernelParams = lib.mkForce [
               "threadirqs"
               "isolcpus=2-3"
@@ -385,18 +415,20 @@
 
             powerManagement.cpuFreqGovernor = "performance";
 
+            # === Headless ===
             services.xserver.enable = false;
             services.displayManager.enable = false;
             hardware.opengl.enable = false;
             hardware.graphics.enable = false;
 
+            # === User ===
             users.users.audio = {
               isNormalUser = true;
               extraGroups = [ "wheel" "audio" "jackaudio" "realtime" "networkmanager" ];
               initialPassword = "changeme";
             };
 
-            services.displayManager.autoLogin.enable = false;
+            services.getty.autologinUser = "audio";
 
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
@@ -419,6 +451,8 @@
           ./modules/server.nix
           ./modules/users.nix
           ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+
             musnix.enable = false;  
             
             users.users.admin = {
@@ -435,10 +469,9 @@
       };
     };
 
-    # Build outputs — now with XZ compression
+    # === Build Outputs (XZ compressed) ===
     packages = {
       ${x86System} = {
-        # x86_64 Live ISO – compressed with xz
         iso = let
           rawIso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
         in pkgsX86.runCommand "archibaldOS.iso.xz" {
@@ -451,7 +484,6 @@
       };
 
       ${armSystem} = {
-        # Orange Pi 5 – compressed SD image
         orangepi5 = let
           raw = self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage;
         in pkgsArm.runCommand "archibaldOS-orangepi5.img.xz" {
@@ -462,7 +494,6 @@
           mv $out.tmp.xz $out
         '';
 
-        # Generic ARM – raw toplevel + optional compressed tarball
         generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
         genericTarXz = pkgsArm.runCommand "archibaldOS-arm-generic.tar.xz" {
           nativeBuildInputs = [ pkgsArm.xz ];
@@ -471,7 +502,6 @@
               -cf - . | xz -9e --threads=0 > $out
         '';
 
-        # Raspberry Pi 3 – compressed SD image
         rpi3b = let
           raw = self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage;
         in pkgsArm.runCommand "archibaldOS-rpi3b.img.xz" {
@@ -484,7 +514,7 @@
       };
     };
 
-    # Development shells
+    # === Development Shells ===
     devShells = {
       ${x86System}.default = (mkPkgs x86System).mkShell {
         packages = with (mkPkgs x86System); [
