@@ -469,15 +469,19 @@
         } ''
           mkdir -p $out.tmp-dir
           cp -r ${self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
-          xz -9e --threads=0 $out.tmp-dir/*.img
-          mv $out.tmp-dir/*.img.xz $out
+          
+          img_file=$(ls $out.tmp-dir/*.img)
+          xz -9e --threads=0 "$img_file"
+          
+          mv "$img_file.xz" "$out"
         '';
 
         generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
         genericTarXz = pkgsArm.runCommandLocal "archibaldOS-arm-generic.tar.xz" {
           nativeBuildInputs = [ pkgsArm.xz ];
         } ''
-          tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . | xz -9e --threads=0 > $out
+          tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . \
+            | xz -9e --threads=0 > "$out"
         '';
 
         rpi3b = pkgsArm.runCommandLocal "archibaldOS-rpi3b.img.xz" {
@@ -485,8 +489,11 @@
         } ''
           mkdir -p $out.tmp-dir
           cp -r ${self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
-          xz -9e --threads=0 $out.tmp-dir/*.img
-          mv $out.tmp-dir/*.img.xz $out
+          
+          img_file=$(ls $out.tmp-dir/*.img)
+          xz -9e --threads=0 "$img_file"
+          
+          mv "$img_file.xz" "$out"
         '';
       };
     };
