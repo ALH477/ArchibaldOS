@@ -262,7 +262,7 @@
       # === Generic ARM SBC ===
       archibaldOS-arm-generic = nixpkgs.lib.nixosSystem {
         system = armSystem;
-        specialArgs = { standardKernel = linux_generic; mkRtKernel = mkRtKernel pkgsArm; };
+        specialArgs = { standardKernel = linux_generic; kRtKernel = mkRtKernel pkgsArm; };
         modules = [
           musnix.nixosModules.musnix
           ./modules/base.nix
@@ -356,7 +356,7 @@
               };
             };
 
-            security.pam.loginLimits = [
+             security.pam.loginLimits = [
               { domain = "@audio"; type = "-"; item = "rtprio"; value = "99"; }
               { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
               { domain = "@audio"; type = "-"; item = "nice"; value = "-19"; }
@@ -444,15 +444,52 @@
       };
     };
 
-    # Build outputs
+    # Build outputs — now with XZ compression
     packages = {
       ${x86System} = {
-        iso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
+        # x86_64 Live ISO – compressed with xz
+        iso = let
+          rawIso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
+        in pkgsX86.runCommand "archibaldOS.iso.xz" {
+          nativeBuildInputs = [ pkgsX86.xz ];
+        } ''
+          cp ${rawIso}/iso/*.iso $out.tmp
+          xz -9e --threads=0 $out.tmp
+          mv $out.tmp.xz $out
+        '';
       };
+
       ${armSystem} = {
-        orangepi5 = self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage;
+        # Orange Pi 5 – compressed SD image
+        orangepi5 = let
+          raw = self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage;
+        in pkgsArm.runCommand "archibaldOS-orangepi5.img.xz" {
+          nativeBuildInputs = [ pkgsArm.xz ];
+        } ''
+          cp ${raw}/sd-image/*.img $out.tmp
+          xz -9e --threads=0 $out.tmp
+          mv $out.tmp.xz $out
+        '';
+
+        # Generic ARM – raw toplevel + optional compressed tarball
         generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
-        rpi3b = self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage;
+        genericTarXz = pkgsArm.runCommand "archibaldOS-arm-generic.tar.xz" {
+          nativeBuildInputs = [ pkgsArm.xz ];
+        } ''
+          tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} \
+              -cf - . | xz -9e --threads=0 > $out
+        '';
+
+        # Raspberry Pi 3 – compressed SD image
+        rpi3b = let
+          raw = self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage;
+        in pkgsArm.runCommand "archibaldOS-rpi3b.img.xz" {
+          nativeBuildInputs = [ pkgsArm.xz ];
+        } ''
+          cp ${raw}/sd-image/*.img $out.tmp
+          xz -9e --threads=0 $out.tmp
+          mv $out.tmp.xz $out
+        '';
       };
     };
 
