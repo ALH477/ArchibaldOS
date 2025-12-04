@@ -449,7 +449,7 @@
       };
     };
 
-    # === Build Outputs ===
+    # === Build Outputs (XZ compressed) ===
     packages = {
       ${x86System} = {
         iso = let
@@ -464,32 +464,29 @@
       };
 
       ${armSystem} = {
-        orangepi5 = let
-          raw = self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage;
-        in pkgsArm.runCommand "archibaldOS-orangepi5.img.xz" {
+        orangepi5 = pkgsArm.runCommandLocal "archibaldOS-orangepi5.img.xz" {
           nativeBuildInputs = [ pkgsArm.xz ];
         } ''
-          cp ${raw}/sd-image/*.img $out.tmp
-          xz -9e --threads=0 $out.tmp
-          mv $out.tmp.xz $out
+          mkdir -p $out.tmp-dir
+          cp -r ${self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+          xz -9e --threads=0 $out.tmp-dir/*.img
+          mv $out.tmp-dir/*.img.xz $out
         '';
 
         generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
-        genericTarXz = pkgsArm.runCommand "archibaldOS-arm-generic.tar.xz" {
+        genericTarXz = pkgsArm.runCommandLocal "archibaldOS-arm-generic.tar.xz" {
           nativeBuildInputs = [ pkgsArm.xz ];
         } ''
-          tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} \
-              -cf - . | xz -9e --threads=0 > $out
+          tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . | xz -9e --threads=0 > $out
         '';
 
-        rpi3b = let
-          raw = self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage;
-        in pkgsArm.runCommand "archibaldOS-rpi3b.img.xz" {
+        rpi3b = pkgsArm.runCommandLocal "archibaldOS-rpi3b.img.xz" {
           nativeBuildInputs = [ pkgsArm.xz ];
         } ''
-          cp ${raw}/sd-image/*.img $out.tmp
-          xz -9e --threads=0 $out.tmp
-          mv $out.tmp.xz $out
+          mkdir -p $out.tmp-dir
+          cp -r ${self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+          xz -9e --threads=0 $out.tmp-dir/*.img
+          mv $out.tmp-dir/*.img.xz $out
         '';
       };
     };
