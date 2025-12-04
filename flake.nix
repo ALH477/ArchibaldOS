@@ -25,7 +25,7 @@
     pkgsX86 = mkPkgs x86System;
     pkgsArm = mkPkgs armSystem;
 
-    # Function to create RT kernel from base kernel
+    # RT kernel patcher
     mkRtKernel = pkgs: kernel: let
       rtVersion = builtins.replaceStrings ["."] [""] kernel.version;
       rtPatchNum = "66";
@@ -41,7 +41,7 @@
       '';
     };
 
-    # CachyOS RT BORE kernel for x86 (extracted from prebuilt Arch package)
+    # CachyOS RT BORE kernel (x86 only)
     cachyRtBoreKernel = pkgs: let
       kernelVersion = "6.17.9";
       pkgUrl = "https://mirror.cachyos.org/repo/x86_64_v3/cachyos-v3/linux-cachyos-rt-bore-${kernelVersion}-1-x86_64_v3.pkg.tar.zst";
@@ -88,13 +88,9 @@
       '';
     };
 
-    # RPi3 standard kernel
+    # ARM kernels
     linux_rpi3 = pkgsArm.linux_rpi3;
-
-    # Orange Pi 5 standard kernel
     linux_rk3588 = pkgsArm.callPackage (nixos-rk3588 + "/pkgs/linux-rk3588/default.nix") {};
-
-    # Generic ARM standard kernel (use 6.1 for RT compatibility)
     linux_generic = pkgsArm.linux_6_1;
 
   in {
@@ -195,7 +191,7 @@
         ];
       };
 
-      # === Orange Pi 5 (RK3588) ===
+      # === Orange Pi 5 ===
       archibaldOS-orangepi5 = nixpkgs.lib.nixosSystem {
         system = armSystem;
         specialArgs = { standardKernel = linux_rk3588; mkRtKernel = mkRtKernel pkgsArm; };
@@ -214,11 +210,8 @@
 
             musnix = {
               enable = true;
-              kernel.realtime = false;  
-              rtirq = {
-                enable = true;
-                highList = "snd_usb_audio";
-              };
+              kernel.realtime = false;
+              rtirq = { enable = true; highList = "snd_usb_audio"; };
               das_watchdog.enable = true;
             };
 
@@ -239,7 +232,7 @@
             branding = {
               enable = true;
               asciiArt = true;
-              splash = false;  
+              splash = false;
               wallpapers = true;
             };
 
@@ -310,7 +303,7 @@
         ];
       };
 
-      # === Raspberry Pi 3 Model B (headless) ===
+      # === Raspberry Pi 3B (headless) ===
       archibaldOS-rpi3b = nixpkgs.lib.nixosSystem {
         system = armSystem;
         specialArgs = { standardKernel = linux_rpi3; mkRtKernel = mkRtKernel pkgsArm; };
@@ -324,7 +317,7 @@
           ({ config, pkgs, lib, ... }: {
             system.stateVersion = "24.11";
 
-            # === Bootloader: Use extlinux + U-Boot ===
+            # Bootloader
             boot.loader.grub.enable = false;
             boot.loader.generic-extlinux-compatible.enable = true;
 
@@ -333,8 +326,9 @@
               fsType = "vfat";
             };
 
-            # === Firmware & config.txt ===
+            # Firmware: Create /boot first
             sdImage.populateFirmwareCommands = ''
+              mkdir -p $NIX_BUILD_TOP/boot
               cp -r ${pkgs.raspberrypifw}/share/raspberrypi/boot/* $NIX_BUILD_TOP/boot/
               cat > $NIX_BUILD_TOP/boot/config.txt <<'EOF'
               # ArchibaldOS RPi3B config
@@ -350,9 +344,9 @@
             '';
 
             hardware.enableRedistributableFirmware = true;
-            hardware.graphics.enable = false;  # Fixed: was opengl
+            hardware.graphics.enable = false;
 
-            # === Musnix (non-RT on ARM) ===
+            # Musnix (non-RT)
             musnix = {
               enable = true;
               kernel.realtime = false;
@@ -360,7 +354,7 @@
               das_watchdog.enable = true;
             };
 
-            # === PipeWire low-latency ===
+            # PipeWire
             services.pipewire.extraConfig.pipewire."92-low-latency" = lib.mkForce {
               "context.properties" = {
                 "default.clock.rate" = 48000;
@@ -370,7 +364,7 @@
               };
             };
 
-            # === RT Limits ===
+            # RT Limits
             security.pam.loginLimits = [
               { domain = "@audio"; type = "-"; item = "rtprio"; value = "99"; }
               { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
@@ -379,7 +373,7 @@
 
             users.groups.realtime = {};
 
-            # === Packages (ARM-safe only) ===
+            # Packages (ARM-safe)
             environment.systemPackages = with pkgs; [
               jack2 pipewire alsa-utils usbutils
               vim git htop tmux
@@ -394,7 +388,7 @@
               '')
             ];
 
-            # === Kernel Tuning ===
+            # Kernel Tuning
             boot.kernelParams = lib.mkForce [
               "threadirqs"
               "isolcpus=2-3"
@@ -407,11 +401,11 @@
 
             powerManagement.cpuFreqGovernor = "performance";
 
-            # === Headless ===
+            # Headless
             services.xserver.enable = false;
             services.displayManager.enable = false;
 
-            # === User ===
+            # User
             users.users.audio = {
               isNormalUser = true;
               extraGroups = [ "wheel" "audio" "jackaudio" "realtime" "networkmanager" ];
@@ -431,7 +425,7 @@
         ];
       };
 
-      # === Server variant (headless) ===
+      # === Server (headless x86) ===
       archibaldOS-server = nixpkgs.lib.nixosSystem {
         system = x86System;
         modules = [
@@ -441,15 +435,12 @@
           ./modules/users.nix
           ({ config, pkgs, lib, ... }: {
             system.stateVersion = "24.11";
-
-            musnix.enable = false;  
+            musnix.enable = false;
             
             users.users.admin = {
               isNormalUser = true;
               extraGroups = [ "wheel" "docker" ];
-              openssh.authorizedKeys.keys = [
-                # Add your SSH keys here
-              ];
+              openssh.authorizedKeys.keys = [ ];
             };
 
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
@@ -458,7 +449,7 @@
       };
     };
 
-    # === Build Outputs (XZ compressed) ===
+    # === Build Outputs ===
     packages = {
       ${x86System} = {
         iso = let
@@ -503,7 +494,7 @@
       };
     };
 
-    # === Development Shells ===
+    # === Dev Shells ===
     devShells = {
       ${x86System}.default = (mkPkgs x86System).mkShell {
         packages = with (mkPkgs x86System); [
