@@ -1018,5 +1018,5 @@ Note: DeMoDulation components are CC0 1.0 (public domain).
 **ArchibaldOS – Professional real-time audio production, anywhere you need it.**
 
 *Built with precision by DeMoD LLC for musicians, engineers, and audio professionals worldwide.*
-
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F11PNYX4)
 **Version:** Based on NixOS 24.11 | **Last Updated:** December 2025
