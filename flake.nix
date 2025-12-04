@@ -324,7 +324,7 @@
           ({ config, pkgs, lib, ... }: {
             system.stateVersion = "24.11";
 
-            # === Bootloader: Use extlinux + U-Boot (modern replacement) ===
+            # === Bootloader: Use extlinux + U-Boot ===
             boot.loader.grub.enable = false;
             boot.loader.generic-extlinux-compatible.enable = true;
 
@@ -333,12 +333,9 @@
               fsType = "vfat";
             };
 
-            # === Firmware & config.txt (replaces raspberryPi.firmwareConfig) ===
+            # === Firmware & config.txt ===
             sdImage.populateFirmwareCommands = ''
-              # Copy Raspberry Pi 3 firmware
               cp -r ${pkgs.raspberrypifw}/share/raspberrypi/boot/* $NIX_BUILD_TOP/boot/
-
-              # Create config.txt with overclock/audio settings
               cat > $NIX_BUILD_TOP/boot/config.txt <<'EOF'
               # ArchibaldOS RPi3B config
               dtparam=audio=on
@@ -346,26 +343,20 @@
               arm_freq=1200
               gpu_mem=16
               disable_overscan=1
-
-              # Kernel loading (extlinux will generate entry)
               kernel=vmlinuz
               initramfs initrd.img followkernel
               EOF
-
-              # Ensure correct DTB
               ln -s ${pkgs.raspberrypifw}/share/raspberrypi/boot/bcm2837-rpi-3-b.dtb $NIX_BUILD_TOP/boot/
             '';
 
             hardware.enableRedistributableFirmware = true;
+            hardware.graphics.enable = false;  # Fixed: was opengl
 
             # === Musnix (non-RT on ARM) ===
             musnix = {
               enable = true;
               kernel.realtime = false;
-              rtirq = {
-                enable = true;
-                highList = "snd_usb_audio";
-              };
+              rtirq = { enable = true; highList = "snd_usb_audio"; };
               das_watchdog.enable = true;
             };
 
@@ -388,10 +379,11 @@
 
             users.groups.realtime = {};
 
-            # === Packages ===
+            # === Packages (ARM-safe only) ===
             environment.systemPackages = with pkgs; [
               jack2 pipewire alsa-utils usbutils
               vim git htop tmux
+              guitarix puredata
               (pkgs.writeShellScriptBin "rt-check" ''
                 #!/usr/bin/env bash
                 echo "=== RT Check (RPi3B) ==="
@@ -418,8 +410,6 @@
             # === Headless ===
             services.xserver.enable = false;
             services.displayManager.enable = false;
-            hardware.opengl.enable = false;
-            hardware.graphics.enable = false;
 
             # === User ===
             users.users.audio = {
@@ -431,7 +421,6 @@
             services.getty.autologinUser = "audio";
 
             nix.settings.experimental-features = [ "nix-command" "flakes" ];
-
             networking.hostName = "archibaldos-rpi3b";
 
             sdImage.imageName = "archibaldos-rpi3b-headless.img";
