@@ -140,10 +140,6 @@
               "processor.max_cstate=1"
             ];
 
-            boot.kernel.sysctl = {
-              "vm.swappiness" = lib.mkForce 0;
-              "fs.inotify.max_user_watches" = 600000;
-            };
 
             powerManagement.cpuFreqGovernor = "performance";
 
@@ -388,11 +384,6 @@
             ];
 
             powerManagement.cpuFreqGovernor = "performance";
-
-            boot.kernel.sysctl = lib.mkForce {
-              "vm.swappiness" = 0;
-              "fs.inotify.max_user_watches" = 600000;
-            };
 
             services.xserver.enable = false;
             services.displayManager.enable = false;
