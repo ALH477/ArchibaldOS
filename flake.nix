@@ -236,6 +236,12 @@
               wallpapers = true;
             };
 
+                        # ---- Use CachyOS RT BORE kernel (x86_64 only) ----
+            archibaldOS.rtKernel = {
+              enable = true;               # turn the rt-kernel module on
+              variant = "cachyos-rt-bore"; # <-- this picks the pre-downloaded CachyOS kernel
+            };
+
             users.users.audio-user = {
               isNormalUser = true;
               extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
