@@ -455,6 +455,52 @@
       };
     };
 
+      # === DSP Coprocessor (kexec, minimal, x86_64) ===
+      archibaldOS-dsp = nixpkgs.lib.nixosSystem {
+        system = x86System;
+        specialArgs = {
+          standardKernel = pkgsX86.linux_latest;
+          mkRtKernel = mkRtKernel pkgsX86;
+        };
+        modules = [
+          disko.nixosModules.disko
+          musnix.nixosModules.musnix
+          ./modules/dsp.nix
+          ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+
+            # Force real-time kernel
+            archibaldOS.rtKernel = {
+              enable = true;
+              variant = "standard";
+            };
+
+            # kexec: load kernel
+            systemd.services.kexec-load = {
+              description = "Load real-time kernel via kexec";
+              wantedBy = [ "multi-user.target" ];
+              after = [ "local-fs.target" ];
+              serviceConfig = {
+                Type = "oneshot";
+                ExecStart = "${pkgs.kexec-tools}/bin/kexec -l /boot/kexec/vmlinuz --initrd=/boot/kexec/initrd --append=\"$(cat /boot/kexec/cmdline)\"";
+                RemainAfterExit = true;
+              };
+            };
+
+            # kexec: jump to it
+            systemd.services.kexec-exec = {
+              description = "Execute kexec (boot into real kernel)";
+              wantedBy = [ "multi-user.target" ];
+              requires = [ "kexec-load.service" ];
+              serviceConfig = {
+                Type = "oneshot";
+                ExecStart = "${pkgs.kexec-tools}/bin/kexec -e";
+              };
+            };
+          })
+        ];
+      };
+
     # === Build Outputs (XZ compressed) ===
     packages = {
       ${x86System} = {
@@ -468,6 +514,15 @@
           mv $out.tmp.xz $out
         '';
       };
+
+          dsp = pkgsX86.runCommandLocal "archibaldOS-dsp.img.xz" {
+          nativeBuildInputs = [ pkgsX86.xz ];
+        } ''
+          mkdir -p $out.tmp
+          cp ${self.nixosConfigurations.archibaldOS-dsp.config.system.build.diskoImage} $out.tmp/dsp.img
+          xz -9e --threads=0 $out.tmp/dsp.img
+          mv $out.tmp/dsp.img.xz $out
+        '';
 
       ${armSystem} = {
         orangepi5 = pkgsArm.runCommandLocal "archibaldOS-orangepi5.img.xz" {
