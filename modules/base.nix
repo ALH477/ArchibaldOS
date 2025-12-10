@@ -17,6 +17,7 @@
   environment.systemPackages = with pkgs; [
     vim wget curl git htop
     usbutils pciutils
+    kexec-tools
   ];
 
   nix.settings = {
