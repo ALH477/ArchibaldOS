@@ -89,5 +89,5 @@ in {
   '';
 
   # Final package list: ARM-safe + x86-only where applicable
-  environment.systemPackages = audioPackages;
+    environment.systemPackages = audioPackages ++ [ pkgs.kexec-tools ];
 }
