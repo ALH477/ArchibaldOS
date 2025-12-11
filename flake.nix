@@ -448,6 +448,7 @@
         specialArgs = {
           standardKernel = pkgsX86.linux_latest;
           mkRtKernel = mkRtKernel pkgsX86;
+          cachyRtBoreKernel = cachyRtBoreKernel pkgsX86; 
         };
         modules = [
           disko.nixosModules.disko
