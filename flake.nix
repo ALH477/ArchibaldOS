@@ -502,7 +502,7 @@
         nativeBuildInputs = [ pkgsX86.xz ];
       } ''
         mkdir -p $out.tmp
-        cp ${self.nixosConfigurations.archibaldOS-dsp.config.system.build.diskoImage} $out.tmp/dsp.img
+        cp ${self.nixosConfigurations.archibaldOS-dsp.config.system.build.diskoImages}/disk1.img $out.tmp/dsp.img
         xz -9e --threads=0 $out.tmp/dsp.img
         mv $out.tmp/dsp.img.xz $out
       '';
