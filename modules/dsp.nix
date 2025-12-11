@@ -47,7 +47,7 @@
   # ---- Disable unnecessary services -------------------------------------
   services.xserver.enable = false;
   services.displayManager.enable = false;
-  services.pipewire.enable = false;
+  services.pipewire.enable = lib.mkForce false;
   hardware.bluetooth.enable = false;
   services.avahi.enable = false;
   services.cron.enable = false;
