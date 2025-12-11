@@ -8,6 +8,7 @@
   imports = [
     ./base.nix
     ./audio.nix
+    ./rt-kernel.nix
   ];
 
   musnix.enable = lib.mkForce false;
