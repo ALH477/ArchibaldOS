@@ -11,6 +11,8 @@
     ./rt-kernel.nix
   ];
 
+  musnix.enable = lib.mkForce false;
+
   # ---- Boot ------------------------------------------------------------
   boot.loader.systemd-boot.enable = false;
   boot.loader.grub.enable = false;
