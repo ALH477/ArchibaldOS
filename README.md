@@ -116,7 +116,7 @@ The **DSP coprocessor** is a **minimal, headless, kexec-booted NixOS instance** 
 ### Build & Deploy
 ```bash
 # Build compressed DSP image
-nix build .#packages.x86_64-linux.dsp -L
+nix build .#packages.x86_64-linux.iso -L
 # → result/archibaldOS-dsp.img.xz
 ```
 
