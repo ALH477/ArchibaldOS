@@ -472,7 +472,7 @@
             # Force real-time kernel
             archibaldOS.rtKernel = {
               enable = true;
-              variant = "standard";
+              variant = "cachyos-rt-bore";
             };
 
             # kexec: load kernel
