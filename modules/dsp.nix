@@ -25,10 +25,7 @@
 
   # ---- Filesystem -------------------------------------------------------
   boot.initrd.availableKernelModules = [ "nvme" "usbhid" "usb_storage" "ext4" ];
-  fileSystems."/" = {
-    device = "/dev/disk/by-label/ROOT";
-    fsType = "ext4";
-  };
+  # REMOVED: fileSystems."/" — let disko handle it
 
   # ---- Networking (disabled) --------------------------------------------
   networking.useDHCP = false;
@@ -51,7 +48,7 @@
   services.xserver.enable = false;
   services.displayManager.enable = false;
   services.pipewire.enable = false;
-  services.bluetooth.enable = false;
+  hardware.bluetooth.enable = false;
   services.avahi.enable = false;
   services.cron.enable = false;
   services.nscd.enable = false;
