@@ -110,7 +110,6 @@
           ./modules/rt-kernel.nix
           ({ config, pkgs, lib, ... }: {
             system.stateVersion = "24.11";
-
             nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
 
             musnix = {
@@ -139,7 +138,6 @@
             ];
 
             powerManagement.cpuFreqGovernor = "performance";
-
             hardware.graphics.enable = true;
             hardware.graphics.extraPackages = with pkgs; [
               mesa vaapiIntel vaapiVdpau libvdpau-va-gl amdvlk
@@ -236,10 +234,9 @@
               wallpapers = true;
             };
 
-                        # ---- Use CachyOS RT BORE kernel (x86_64 only) ----
             archibaldOS.rtKernel = {
-              enable = true;               # turn the rt-kernel module on
-              variant = "cachyos-rt-bore"; # <-- this picks the pre-downloaded CachyOS kernel
+              enable = true;
+              variant = "cachyos-rt-bore";
             };
 
             users.users.audio-user = {
@@ -323,7 +320,6 @@
           ({ config, pkgs, lib, ... }: {
             system.stateVersion = "24.11";
 
-            # Bootloader
             boot.loader.grub.enable = false;
             boot.loader.generic-extlinux-compatible.enable = true;
 
@@ -332,7 +328,6 @@
               fsType = "vfat";
             };
 
-            # Firmware: Create /boot first
             sdImage.populateFirmwareCommands = ''
               mkdir -p $NIX_BUILD_TOP/boot
               cp -r ${pkgs.raspberrypifw}/share/raspberrypi/boot/* $NIX_BUILD_TOP/boot/
@@ -352,7 +347,6 @@
             hardware.enableRedistributableFirmware = true;
             hardware.graphics.enable = false;
 
-            # Musnix (non-RT)
             musnix = {
               enable = true;
               kernel.realtime = false;
@@ -360,7 +354,6 @@
               das_watchdog.enable = true;
             };
 
-            # PipeWire
             services.pipewire.extraConfig.pipewire."92-low-latency" = lib.mkForce {
               "context.properties" = {
                 "default.clock.rate" = 48000;
@@ -370,7 +363,6 @@
               };
             };
 
-            # RT Limits
             security.pam.loginLimits = [
               { domain = "@audio"; type = "-"; item = "rtprio"; value = "99"; }
               { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
@@ -379,7 +371,6 @@
 
             users.groups.realtime = {};
 
-            # Packages (ARM-safe)
             environment.systemPackages = with pkgs; [
               jack2 pipewire alsa-utils usbutils
               vim git htop tmux
@@ -394,7 +385,6 @@
               '')
             ];
 
-            # Kernel Tuning
             boot.kernelParams = lib.mkForce [
               "threadirqs"
               "isolcpus=2-3"
@@ -407,11 +397,9 @@
 
             powerManagement.cpuFreqGovernor = "performance";
 
-            # Headless
             services.xserver.enable = false;
             services.displayManager.enable = false;
 
-            # User
             users.users.audio = {
               isNormalUser = true;
               extraGroups = [ "wheel" "audio" "jackaudio" "realtime" "networkmanager" ];
@@ -453,7 +441,6 @@
           })
         ];
       };
-    };
 
       # === DSP Coprocessor (kexec, minimal, x86_64) ===
       archibaldOS-dsp = nixpkgs.lib.nixosSystem {
@@ -469,13 +456,11 @@
           ({ config, pkgs, lib, ... }: {
             system.stateVersion = "24.11";
 
-            # Force real-time kernel
             archibaldOS.rtKernel = {
               enable = true;
               variant = "cachyos-rt-bore";
             };
 
-            # kexec: load kernel
             systemd.services.kexec-load = {
               description = "Load real-time kernel via kexec";
               wantedBy = [ "multi-user.target" ];
@@ -487,7 +472,6 @@
               };
             };
 
-            # kexec: jump to it
             systemd.services.kexec-exec = {
               description = "Execute kexec (boot into real kernel)";
               wantedBy = [ "multi-user.target" ];
@@ -500,80 +484,74 @@
           })
         ];
       };
+    };
 
     # === Build Outputs (XZ compressed) ===
-    packages = {
-      ${x86System} = {
-        iso = let
-          rawIso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
-        in pkgsX86.runCommand "archibaldOS.iso.xz" {
-          nativeBuildInputs = [ pkgsX86.xz ];
-        } ''
-          cp ${rawIso}/iso/*.iso $out.tmp
-          xz -9e --threads=0 $out.tmp
-          mv $out.tmp.xz $out
-        '';
-      };
+    packages.${x86System} = {
+      iso = let
+        rawIso = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
+      in pkgsX86.runCommand "archibaldOS.iso.xz" {
+        nativeBuildInputs = [ pkgsX86.xz ];
+      } ''
+        cp ${rawIso}/iso/*.iso $out.tmp
+        xz -9e --threads=0 $out.tmp
+        mv $out.tmp.xz $out
+      '';
 
-          dsp = pkgsX86.runCommandLocal "archibaldOS-dsp.img.xz" {
-          nativeBuildInputs = [ pkgsX86.xz ];
-        } ''
-          mkdir -p $out.tmp
-          cp ${self.nixosConfigurations.archibaldOS-dsp.config.system.build.diskoImage} $out.tmp/dsp.img
-          xz -9e --threads=0 $out.tmp/dsp.img
-          mv $out.tmp/dsp.img.xz $out
-        '';
+      dsp = pkgsX86.runCommandLocal "archibaldOS-dsp.img.xz" {
+        nativeBuildInputs = [ pkgsX86.xz ];
+      } ''
+        mkdir -p $out.tmp
+        cp ${self.nixosConfigurations.archibaldOS-dsp.config.system.build.diskoImage} $out.tmp/dsp.img
+        xz -9e --threads=0 $out.tmp/dsp.img
+        mv $out.tmp/dsp.img.xz $out
+      '';
+    };
 
-      ${armSystem} = {
-        orangepi5 = pkgsArm.runCommandLocal "archibaldOS-orangepi5.img.xz" {
-          nativeBuildInputs = [ pkgsArm.xz ];
-        } ''
-          mkdir -p $out.tmp-dir
-          cp -r ${self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
-          
-          img_file=$(ls $out.tmp-dir/*.img)
-          xz -9e --threads=0 "$img_file"
-          
-          mv "$img_file.xz" "$out"
-        '';
+    packages.${armSystem} = {
+      orangepi5 = pkgsArm.runCommandLocal "archibaldOS-orangepi5.img.xz" {
+        nativeBuildInputs = [ pkgsArm.xz ];
+      } ''
+        mkdir -p $out.tmp-dir
+        cp -r ${self.nixosConfigurations.archibaldOS-orangepi5.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+        img_file=$(ls $out.tmp-dir/*.img)
+        xz -9e --threads=0 "$img_file"
+        mv "$img_file.xz" "$out"
+      '';
 
-        generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
-        genericTarXz = pkgsArm.runCommandLocal "archibaldOS-arm-generic.tar.xz" {
-          nativeBuildInputs = [ pkgsArm.xz ];
-        } ''
-          tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . \
-            | xz -9e --threads=0 > "$out"
-        '';
+      generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
 
-        rpi3b = pkgsArm.runCommandLocal "archibaldOS-rpi3b.img.xz" {
-          nativeBuildInputs = [ pkgsArm.xz ];
-        } ''
-          mkdir -p $out.tmp-dir
-          cp -r ${self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
-          
-          img_file=$(ls $out.tmp-dir/*.img)
-          xz -9e --threads=0 "$img_file"
-          
-          mv "$img_file.xz" "$out"
-        '';
-      };
+      genericTarXz = pkgsArm.runCommandLocal "archibaldOS-arm-generic.tar.xz" {
+        nativeBuildInputs = [ pkgsArm.xz ];
+      } ''
+        tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . \
+          | xz -9e --threads=0 > "$out"
+      '';
+
+      rpi3b = pkgsArm.runCommandLocal "archibaldOS-rpi3b.img.xz" {
+        nativeBuildInputs = [ pkgsArm.xz ];
+      } ''
+        mkdir -p $out.tmp-dir
+        cp -r ${self.nixosConfigurations.archibaldOS-rpi3b.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+        img_file=$(ls $out.tmp-dir/*.img)
+        xz -9e --threads=0 "$img_file"
+        mv "$img_file.xz" "$out"
+      '';
     };
 
     # === Dev Shells ===
-    devShells = {
-      ${x86System}.default = (mkPkgs x86System).mkShell {
-        packages = with (mkPkgs x86System); [
-          audacity ardour fluidsynth musescore guitarix
-          csound faust portaudio rtaudio supercollider qjackctl
-          surge pcmanfm vim
-        ];
-      };
+    devShells.${x86System}.default = (mkPkgs x86System).mkShell {
+      packages = with (mkPkgs x86System); [
+        audacity ardour fluidsynth musescore guitarix
+        csound faust portaudio rtaudio supercollider qjackctl
+        surge pcmanfm vim
+      ];
+    };
       
-      ${armSystem}.default = (mkPkgs armSystem).mkShell {
-        packages = with (mkPkgs armSystem); [
-          jack2 guitarix puredata vim
-        ];
-      };
+    devShells.${armSystem}.default = (mkPkgs armSystem).mkShell {
+      packages = with (mkPkgs armSystem); [
+        jack2 guitarix puredata vim
+      ];
     };
   };
 }
