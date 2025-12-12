@@ -1,7 +1,7 @@
 # ArchibaldOS: Professional Real-Time Audio Operating System
 **© 2025 DeMoD LLC. All rights reserved.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: BSD3](https://img.shields.io/badge/License-BSD-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Nix Flake](https://img.shields.io/badge/Built%20with-Nix-blue.svg)](https://nixos.org/)
 [![Multi-Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-green.svg)](https://nixos.org/)
 [![GitHub Issues](https://img.shields.io/github/issues/ALH477/ArchibaldOS)](https://github.com/ALH477/ArchibaldOS/issues)
@@ -1072,18 +1072,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 - DeMoD SDR integrations
 
 ---
-
-## License
-
-**MIT License**
-
-Copyright © 2025 DeMoD LLC. All rights reserved.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 See [LICENSE](LICENSE) file for full details.
 
