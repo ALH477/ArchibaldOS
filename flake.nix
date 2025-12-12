@@ -1,15 +1,9 @@
 # flake.nix
 # Copyright 2025 DeMoD LLC
-
-# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# ArchibaldOS: Unified NixOS for real-time audio, robotics, LIDAR, secure routing, and DSP.
+# Powered by profile-selector.nix — one-line builds for all targets.
 
 {
   description = "ArchibaldOS: Unified NixOS for real-time audio (x86_64 ISO + ARM SBC)";
@@ -28,7 +22,7 @@
   outputs = { self, nixpkgs, musnix, disko, nixos-rk3588, streamdb }: let
     x86System = "x86_64-linux";
     armSystem = "aarch64-linux";
-    
+
     mkPkgs = system: import nixpkgs {
       inherit system;
       config.allowUnfree = true;
@@ -53,22 +47,22 @@
       '';
     };
 
-    # CachyOS RT BORE kernel (x86 only) — imported correctly
+    # CachyOS RT BORE kernel (x86 only)
     cachyRtBoreKernel = pkgs: let
       kernelVersion = "6.17.9";
       pkgUrl = "https://mirror.cachyos.org/repo/x86_64_v3/cachyos-v3/linux-cachyos-rt-bore-${kernelVersion}-1-x86_64_v3.pkg.tar.zst";
       headersUrl = "https://mirror.cachyos.org/repo/x86_64_v3/cachyos-v3/linux-cachyos-rt-bore-headers-${kernelVersion}-1-x86_64_v3.pkg.tar.zst";
-      
+
       kernelPkg = pkgs.fetchurl {
         url = pkgUrl;
-        hash = "${pkgs.lib.fakeHash}";  # Run build to get real hash
+        hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # Run build to get real hash
       };
-      
+
       headersPkg = pkgs.fetchurl {
         url = headersUrl;
-        hash = "${pkgs.lib.fakeHash}";  # Run build to get real hash
+        hash = "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";  # Run build to get real hash
       };
-      
+
       unpacked = pkgs.runCommand "unpack-cachy" {} ''
         mkdir -p $out/kernel $out/headers
         ${pkgs.zstd}/bin/zstd -d ${kernelPkg} -o - | tar xf - -C $out/kernel
@@ -77,17 +71,12 @@
     in pkgs.buildLinux {
       version = "${kernelVersion}-cachyos-rt-bore";
       modDirVersion = "${kernelVersion}-cachyos-rt-bore";
-
       src = unpacked + "/kernel";
       kernelPatches = [];
       configfile = unpacked + "/kernel/usr/lib/modules/${kernelVersion}-cachyos-rt-bore/config";
-
-      # Skip build — we're importing prebuilt
       extraMakeFlags = [ "modules_prepare" ];
       allowImportFromDerivation = true;
       ignoreConfigErrors = true;
-
-      # Copy prebuilt modules/firmware
       postInstall = ''
         cp -r ${unpacked}/kernel/usr/lib/modules/* $out/lib/modules/
         cp -r ${unpacked}/kernel/usr/lib/firmware/* $out/lib/firmware/ 2>/dev/null || true
@@ -100,398 +89,41 @@
     linux_rk3588 = pkgsArm.callPackage (nixos-rk3588 + "/pkgs/linux-rk3588/default.nix") {};
     linux_generic = pkgsArm.linux_6_1;
 
+    # Helper: Create system with profile
+    mkSystem = system: profile: nixpkgs.lib.nixosSystem {
+      inherit system;
+      specialArgs = {
+        standardKernel = if system == x86System then pkgsX86.linux_latest else linux_generic;
+        cachyRtBoreKernel = if system == x86System then cachyRtBoreKernel pkgsX86 else null;
+        mkRtKernel = if system == x86System then mkRtKernel pkgsX86 else mkRtKernel pkgsArm;
+      };
+      modules = [
+        musnix.nixosModules.musnix
+        disko.nixosModules.disko
+        ./modules/profile-selector.nix
+        ({ config, ... }: {
+          archibaldOS.profile = profile;
+        })
+      ];
+    };
+
   in {
+    # === NixOS Configurations (via profiles) ===
     nixosConfigurations = {
-      # === x86_64 Live ISO ===
-      archibaldOS-iso = nixpkgs.lib.nixosSystem {
-        system = x86System;
-        specialArgs = { standardKernel = pkgsX86.linux_latest; cachyRtBoreKernel = cachyRtBoreKernel pkgsX86; mkRtKernel = mkRtKernel pkgsX86; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
-          musnix.nixosModules.musnix
-          ./modules/base.nix
-          ./modules/audio.nix
-          ./modules/desktop.nix
-          ./modules/users.nix
-          ./modules/branding.nix
-          ./modules/rt-kernel.nix
-          ({ config, pkgs, lib, ... }: {
-            system.stateVersion = "24.11";
-            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
+      # x86_64
+      archibaldOS-iso           = mkSystem x86System "audio-live-iso";
+      archibaldOS-workstation   = mkSystem x86System "audio-workstation";
+      archibaldOS-server        = mkSystem x86System "custom";  # Manual server config
+      archibaldOS-dsp           = mkSystem x86System "dsp-coprocessor";
+      archibaldOS-lidar-station = mkSystem x86System "lidar-station";
 
-            musnix = {
-              enable = true;
-              kernel.realtime = true;
-              alsaSeq.enable = true;
-              rtirq.enable = true;
-              das_watchdog.enable = true;
-            };
-
-            environment.systemPackages = with pkgs; [
-              usbutils libusb1 alsa-firmware alsa-tools
-              dialog disko mkpasswd networkmanager
-              audacity fluidsynth guitarix
-              csound csound-qt faust portaudio rtaudio supercollider qjackctl
-              surge zrythm carla puredata helm vmpk qmidinet 
-              faust2alsa faust2csound faust2jack calf
-            ];
-
-            boot.kernelParams = [
-              "threadirqs"
-              "isolcpus=1-3"
-              "nohz_full=1-3"
-              "intel_idle.max_cstate=1"
-              "processor.max_cstate=1"
-            ];
-
-            powerManagement.cpuFreqGovernor = "performance";
-            hardware.graphics.enable = true;
-            hardware.graphics.extraPackages = with pkgs; [
-              mesa vaapiIntel vaapiVdpau libvdpau-va-gl amdvlk
-            ];
-
-            isoImage.squashfsCompression = "gzip -Xcompression-level 1";
-            nix.settings.experimental-features = [ "nix-command" "flakes" ];
-
-            branding = {
-              enable = true;
-              asciiArt = true;
-              splash = true;
-              wallpapers = true;
-            };
-
-            users.users.nixos = {
-              isNormalUser = true;
-              initialHashedPassword = lib.mkForce null;
-              initialPassword = "nixos";
-              home = "/home/nixos";
-              createHome = true;
-              extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" ];
-              shell = lib.mkForce pkgs.bashInteractive;
-            };
-
-            users.users.audio-user = lib.mkForce {
-              isSystemUser = true;
-              group = "audio-user";
-              description = "Disabled in live ISO";
-            };
-            users.groups.audio-user = {};
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "nixos";
-            };
-
-            services.displayManager.sddm.settings = {
-              Users.HideUsers = "audio-user";
-            };
-
-            system.activationScripts.mkdirScreenshots = {
-              text = ''
-                mkdir -p /home/nixos/Pictures/Screenshots
-                chown nixos:users /home/nixos/Pictures/Screenshots
-              '';
-            };
-          })
-        ];
-      };
-
-      # === Orange Pi 5 ===
-      archibaldOS-orangepi5 = nixpkgs.lib.nixosSystem {
-        system = armSystem;
-        specialArgs = { standardKernel = linux_rk3588; mkRtKernel = mkRtKernel pkgsArm; };
-        modules = [
-          nixos-rk3588.nixosModules.orangepi5
-          musnix.nixosModules.musnix
-          ./modules/base.nix
-          ./modules/audio.nix
-          ./modules/desktop.nix
-          ./modules/users.nix
-          ./modules/branding.nix
-          ./modules/orange-pi-5.nix
-          ./modules/rt-kernel.nix
-          ({ config, pkgs, lib, ... }: {
-            system.stateVersion = "24.11";
-
-            musnix = {
-              enable = true;
-              kernel.realtime = false;
-              rtirq = { enable = true; highList = "snd_usb_audio"; };
-              das_watchdog.enable = true;
-            };
-
-            environment.systemPackages = with pkgs; [
-              jack2 qjackctl jack_capture
-              guitarix qtractor puredata
-              pavucontrol helvum qpwgraph jalv
-            ];
-
-            boot.kernelParams = [
-              "threadirqs"
-              "cpufreq.default_governor=performance"
-              "nohz_full=1-7"
-            ];
-
-            powerManagement.cpuFreqGovernor = "performance";
-
-            branding = {
-              enable = true;
-              asciiArt = true;
-              splash = false;
-              wallpapers = true;
-            };
-
-            archibaldOS.rtKernel = {
-              enable = true;
-              variant = "cachyos-rt-bore";
-            };
-
-            users.users.audio-user = {
-              isNormalUser = true;
-              extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
-            };
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "audio-user";
-            };
-
-            nix.settings.experimental-features = [ "nix-command" "flakes" ];
-          })
-        ];
-      };
-
-      # === Generic ARM SBC ===
-      archibaldOS-arm-generic = nixpkgs.lib.nixosSystem {
-        system = armSystem;
-        specialArgs = { standardKernel = linux_generic; mkRtKernel = mkRtKernel pkgsArm; };
-        modules = [
-          musnix.nixosModules.musnix
-          ./modules/base.nix
-          ./modules/audio.nix
-          ./modules/desktop.nix
-          ./modules/users.nix
-          ./modules/branding.nix
-          ./modules/rt-kernel.nix
-          ({ config, pkgs, lib, ... }: {
-            system.stateVersion = "24.11";
-
-            musnix = {
-              enable = true;
-              kernel.realtime = false;
-              rtirq.enable = true;
-              das_watchdog.enable = true;
-            };
-
-            environment.systemPackages = with pkgs; [
-              jack2 qjackctl guitarix qtractor puredata
-              pavucontrol helvum qpwgraph
-            ];
-
-            boot.kernelParams = [ "threadirqs" "cpufreq.default_governor=performance" ];
-            powerManagement.cpuFreqGovernor = "performance";
-
-            branding = {
-              enable = true;
-              asciiArt = true;
-              splash = false;
-              wallpapers = true;
-            };
-
-            users.users.audio-user = {
-              isNormalUser = true;
-              extraGroups = [ "audio" "jackaudio" "realtime" "video" "wheel" ];
-            };
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "audio-user";
-            };
-
-            nix.settings.experimental-features = [ "nix-command" "flakes" ];
-          })
-        ];
-      };
-
-      # === Raspberry Pi 3B (headless) ===
-      archibaldOS-rpi3b = nixpkgs.lib.nixosSystem {
-        system = armSystem;
-        specialArgs = { standardKernel = linux_rpi3; mkRtKernel = mkRtKernel pkgsArm; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
-          musnix.nixosModules.musnix
-          ./modules/base.nix
-          ./modules/audio.nix
-          ./modules/users.nix
-          ./modules/rt-kernel.nix
-          ({ config, pkgs, lib, ... }: {
-            system.stateVersion = "24.11";
-
-            boot.loader.grub.enable = false;
-            boot.loader.generic-extlinux-compatible.enable = true;
-
-            fileSystems."/boot" = {
-              device = "/dev/disk/by-label/BOOT";
-              fsType = "vfat";
-            };
-
-            sdImage.populateFirmwareCommands = ''
-              mkdir -p $NIX_BUILD_TOP/boot
-              cp -r ${pkgs.raspberrypifw}/share/raspberrypi/boot/* $NIX_BUILD_TOP/boot/
-              cat > $NIX_BUILD_TOP/boot/config.txt <<'EOF'
-              # ArchibaldOS RPi3B config
-              dtparam=audio=on
-              force_turbo=1
-              arm_freq=1200
-              gpu_mem=16
-              disable_overscan=1
-              kernel=vmlinuz
-              initramfs initrd.img followkernel
-              EOF
-              ln -s ${pkgs.raspberrypifw}/share/raspberrypi/boot/bcm2837-rpi-3-b.dtb $NIX_BUILD_TOP/boot/
-            '';
-
-            hardware.enableRedistributableFirmware = true;
-            hardware.graphics.enable = false;
-
-            musnix = {
-              enable = true;
-              kernel.realtime = false;
-              rtirq = { enable = true; highList = "snd_usb_audio"; };
-              das_watchdog.enable = true;
-            };
-
-            services.pipewire.extraConfig.pipewire."92-low-latency" = lib.mkForce {
-              "context.properties" = {
-                "default.clock.rate" = 48000;
-                "default.clock.quantum" = 128;
-                "default.clock.min-quantum" = 128;
-                "default.clock.max-quantum" = 128;
-              };
-            };
-
-            security.pam.loginLimits = [
-              { domain = "@audio"; type = "-"; item = "rtprio"; value = "99"; }
-              { domain = "@audio"; type = "-"; item = "memlock"; value = "unlimited"; }
-              { domain = "@audio"; type = "-"; item = "nice"; value = "-19"; }
-            ];
-
-            users.groups.realtime = {};
-
-            environment.systemPackages = with pkgs; [
-              jack2 pipewire alsa-utils usbutils
-              vim git htop tmux
-              guitarix puredata
-              (pkgs.writeShellScriptBin "rt-check" ''
-                #!/usr/bin/env bash
-                echo "=== RT Check (RPi3B) ==="
-                uname -r
-                cat /sys/kernel/realtime || echo "RT not enabled"
-                ulimit -r
-                systemctl --user status pipewire
-              '')
-            ];
-
-            boot.kernelParams = lib.mkForce [
-              "threadirqs"
-              "isolcpus=2-3"
-              "nohz_full=2-3"
-              "rcu_nocbs=2-3"
-              "cpufreq.default_governor=performance"
-              "cma=128M"
-              "coherent_pool=1M"
-            ];
-
-            powerManagement.cpuFreqGovernor = "performance";
-
-            services.xserver.enable = false;
-            services.displayManager.enable = false;
-
-            users.users.audio = {
-              isNormalUser = true;
-              extraGroups = [ "wheel" "audio" "jackaudio" "realtime" "networkmanager" ];
-              initialPassword = "changeme";
-            };
-
-            services.getty.autologinUser = "audio";
-
-            nix.settings.experimental-features = [ "nix-command" "flakes" ];
-            networking.hostName = "archibaldos-rpi3b";
-
-            sdImage.imageName = "archibaldos-rpi3b-headless.img";
-            sdImage.compressImage = true;
-
-            boot.kernelModules = [ "snd_usb_audio" "snd_bcm2835" ];
-          })
-        ];
-      };
-
-      # === Server (headless x86) ===
-      archibaldOS-server = nixpkgs.lib.nixosSystem {
-        system = x86System;
-        modules = [
-          musnix.nixosModules.musnix
-          ./modules/base.nix
-          ./modules/server.nix
-          ./modules/users.nix
-          ({ config, pkgs, lib, ... }: {
-            system.stateVersion = "24.11";
-            musnix.enable = false;
-            
-            users.users.admin = {
-              isNormalUser = true;
-              extraGroups = [ "wheel" "docker" ];
-              openssh.authorizedKeys.keys = [ ];
-            };
-
-            nix.settings.experimental-features = [ "nix-command" "flakes" ];
-          })
-        ];
-      };
-
-      # === DSP Coprocessor (kexec, minimal, x86_64) ===
-      archibaldOS-dsp = nixpkgs.lib.nixosSystem {
-        system = x86System;
-        specialArgs = {
-          standardKernel = pkgsX86.linux_latest;
-          mkRtKernel = mkRtKernel pkgsX86;
-          cachyRtBoreKernel = cachyRtBoreKernel pkgsX86;
-        };
-        modules = [
-          disko.nixosModules.disko
-          musnix.nixosModules.musnix
-          ./modules/dsp.nix
-          ({ config, pkgs, lib, ... }: {
-            system.stateVersion = "24.11";
-
-            archibaldOS.rtKernel = {
-              enable = true;
-              variant = "cachyos-rt-bore";
-            };
-
-            systemd.services.kexec-load = {
-              description = "Load real-time kernel via kexec";
-              wantedBy = [ "multi-user.target" ];
-              after = [ "local-fs.target" ];
-              serviceConfig = {
-                Type = "oneshot";
-                ExecStart = "${pkgs.kexec-tools}/bin/kexec -l /boot/kexec/vmlinuz --initrd=/boot/kexec/initrd --append=\"$(cat /boot/kexec/cmdline)\"";
-                RemainAfterExit = true;
-              };
-            };
-
-            systemd.services.kexec-exec = {
-              description = "Execute kexec (boot into real kernel)";
-              wantedBy = [ "multi-user.target" ];
-              requires = [ "kexec-load.service" ];
-              serviceConfig = {
-                Type = "oneshot";
-                ExecStart = "${pkgs.kexec-tools}/bin/kexec -e";
-              };
-            };
-          })
-        ];
-      };
+      # ARM64
+      archibaldOS-orangepi5     = mkSystem armSystem "drone-brain";
+      archibaldOS-rpi5          = mkSystem armSystem "drone-brain";
+      archibaldOS-rpi3b         = mkSystem armSystem "drone-brain";
+      archibaldOS-rock5         = mkSystem armSystem "drone-brain";
+      archibaldOS-router        = mkSystem armSystem "secure-router";
+      archibaldOS-arm-generic   = mkSystem armSystem "custom";
     };
 
     # === Build Outputs (XZ compressed) ===
@@ -527,13 +159,14 @@
         mv "$img_file.xz" "$out"
       '';
 
-      generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
-
-      genericTarXz = pkgsArm.runCommandLocal "archibaldOS-arm-generic.tar.xz" {
+      rpi5 = pkgsArm.runCommandLocal "archibaldOS-rpi5.img.xz" {
         nativeBuildInputs = [ pkgsArm.xz ];
       } ''
-        tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . \
-          | xz -9e --threads=0 > "$out"
+        mkdir -p $out.tmp-dir
+        cp -r ${self.nixosConfigurations.archibaldOS-rpi5.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+        img_file=$(ls $out.tmp-dir/*.img)
+        xz -9e --threads=0 "$img_file"
+        mv "$img_file.xz" "$out"
       '';
 
       rpi3b = pkgsArm.runCommandLocal "archibaldOS-rpi3b.img.xz" {
@@ -545,6 +178,35 @@
         xz -9e --threads=0 "$img_file"
         mv "$img_file.xz" "$out"
       '';
+
+      rock5 = pkgsArm.runCommandLocal "archibaldOS-rock5.img.xz" {
+        nativeBuildInputs = [ pkgsArm.xz ];
+      } ''
+        mkdir -p $out.tmp-dir
+        cp -r ${self.nixosConfigurations.archibaldOS-rock5.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+        img_file=$(ls $out.tmp-dir/*.img)
+        xz -9e --threads=0 "$img_file"
+        mv "$img_file.xz" "$out"
+      '';
+
+      router = pkgsArm.runCommandLocal "archibaldOS-router.img.xz" {
+        nativeBuildInputs = [ pkgsArm.xz ];
+      } ''
+        mkdir -p $out.tmp-dir
+        cp -r ${self.nixosConfigurations.archibaldOS-router.config.system.build.sdImage}/sd-image/* $out.tmp-dir/
+        img_file=$(ls $out.tmp-dir/*.img)
+        xz -9e --threads=0 "$img_file"
+        mv "$img_file.xz" "$out"
+      '';
+
+      generic = self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel;
+
+      genericTarXz = pkgsArm.runCommandLocal "archibaldOS-arm-generic.tar.xz" {
+        nativeBuildInputs = [ pkgsArm.xz ];
+      } ''
+        tar -C ${self.nixosConfigurations.archibaldOS-arm-generic.config.system.build.toplevel} -cf - . \
+          | xz -9e --threads=0 > "$out"
+      '';
     };
 
     # === Dev Shells ===
@@ -552,13 +214,17 @@
       packages = with (mkPkgs x86System); [
         audacity ardour fluidsynth musescore guitarix
         csound faust portaudio rtaudio supercollider qjackctl
-        surge pcmanfm vim
+        surge pcmanfm vim nixd
+        rosPackages.humble.ros-core rosPackages.humble.rviz2
+        pcl-tools
       ];
     };
-      
+
     devShells.${armSystem}.default = (mkPkgs armSystem).mkShell {
       packages = with (mkPkgs armSystem); [
         jack2 guitarix puredata vim
+        rosPackages.humble.ros-core
+        i2c-tools
       ];
     };
   };
