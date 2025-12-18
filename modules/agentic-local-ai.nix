@@ -1,16 +1,45 @@
-# Copyright ©️ DeMoD LLC - see LICENSE 
+# modules/agentic-local-ai.nix
 #
-#modules/agentic-local-ai.nix
+# Copyright (c) 2025 DeMoD LLC
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
 # Declarative NixOS module for a complete local agentic AI stack on ArchibaldOS:
 # - Ollama with optional CUDA acceleration
 # - Preloaded text + vision models (with presets for different hardware tiers)
 # - llama.cpp as high-performance alternative backend
 # - Open WebUI as powerful agentic frontend (tools, pipelines, RAG, multi-model, image/audio upload)
 # - Local STT (via Open WebUI's built-in Local Whisper / faster-whisper)
-# - Local TTS:
-#   - Piper (default: fast, low-latency, multiple voices)
-#   - Optional Coqui XTTS-v2 (community-maintained high-quality multilingual + voice cloning)
-# - Optional AutoGen + CrewAI for advanced multi-agent workflows (Ollama-native)
+# - Local TTS: Piper (fast, low-latency, multiple voices) + optional Coqui XTTS-v2 (multilingual + cloning)
+# - Optional AutoGen + CrewAI for advanced multi-agent orchestration
+# - Optional vLLM for high-performance multi-GPU inference (tensor parallelism + PagedAttention)
+# - Optional LLM fine-tuning environment (Axolotl-compatible)
+# - Optional Folding@Home client for GPU protein folding simulations
 # - High-quality, low-latency PipeWire (96 kHz / 128-sample quantum default)
 
 { config, lib, pkgs, ... }:
@@ -22,7 +51,7 @@ let
 in
 {
   options.services.agentic-local-ai = {
-    enable = mkEnableOption "Agentic local AI profile with vision, voice, multi-agent, and agentic tools";
+    enable = mkEnableOption "Agentic local AI profile with vision, voice, multi-agent, and advanced tools";
 
     preset = mkOption {
       type = types.enum [ "default" "high-vram" "pewdiepie" ];
@@ -47,7 +76,7 @@ in
       description = "Custom model list – overrides preset defaults if non-empty";
     };
 
-    enableWebUI = mkEnableOption "Open WebUI frontend (strongly recommended for agentic use)" // { default = true; };
+    enableWebUI = mkEnableOption "Open WebUI frontend" // { default = true; };
 
     webuiPort = mkOption { type = types.port; default = 8080; };
     ollamaPort = mkOption { type = types.port; default = 11434; };
@@ -65,7 +94,7 @@ in
                   else if cfg.acceleration == "cuda" then "balanced"
                   else "fast";
         description = ''
-          Voice optimization mode (applies to Piper; XTTS is always high-quality when enabled):
+          Voice optimization mode:
           - fast: Low-latency, CPU-friendly
           - balanced: Good quality and speed
           - high-quality: Maximum fidelity
@@ -83,21 +112,29 @@ in
       piperVoices = mkOption {
         type = types.listOf types.str;
         default = [
-          "en_US-lessac-low"         # Fast mode
-          "en_US-lessac-medium"      # Balanced
-          "en_US-amy-high"           # High-quality English
-          "en_GB-alan-medium"        # British English
-          "en_US-hfc_male-medium"    # Additional natural male
-          "de_DE-thorsten-high"      # Example multilingual (German)
+          "en_US-lessac-low"
+          "en_US-lessac-medium"
+          "en_US-amy-high"
+          "en_GB-alan-medium"
+          "en_US-hfc_male-medium"
+          "de_DE-thorsten-high"
         ];
-        description = "Recommended Piper voices for different use cases (use with `piper --model <voice>`)";
+        description = "Recommended Piper voices for different use cases";
       };
 
       xtts = {
-        enable = mkEnableOption "Coqui XTTS-v2 (community-maintained) for SOTA multilingual TTS + voice cloning" // {
+        enable = mkEnableOption "Coqui XTTS-v2 for SOTA multilingual TTS + voice cloning" // {
           description = "High-quality alternative/complement to Piper; best with CUDA";
         };
       };
+    };
+
+    advanced = {
+      vllm = mkEnableOption "vLLM for high-performance multi-GPU inference (tensor parallelism + PagedAttention)";
+
+      fineTuning = mkEnableOption "LLM fine-tuning environment (Axolotl-compatible with QLoRA, flash-attn, etc.)";
+
+      foldingAtHome = mkEnableOption "Folding@Home client for GPU protein folding simulations (charity compute)";
     };
   };
 
@@ -135,23 +172,18 @@ in
     environment.systemPackages = with pkgs; [
       ollama
       open-webui
-      (llama-cpp.override {
-        cudaSupport = (cfg.acceleration == "cuda" || cfg.preset == "pewdiepie");
-      })
-      # Voice core
+      (llama-cpp.override { cudaSupport = (cfg.acceleration == "cuda" || cfg.preset == "pewdiepie"); })
       (optional cfg.voice.enable piper-tts)
       (optional cfg.voice.enable whisper-cpp)
-      # XTTS-v2 (community Coqui)
       (optional (cfg.voice.enable && cfg.voice.xtts.enable) python312Packages.tts)
-      # Multi-agent frameworks
-      (optional cfg.multiAgent.enable
-        (python312.withPackages (ps: with ps; [
-          pyautogen
-          crewai
-          crewai-tools
-          langchain
-          litellm  # For easy Ollama integration
-        ])))
+      (optional cfg.multiAgent.enable (python312.withPackages (ps: with ps; [
+        pyautogen crewai crewai-tools langchain litellm
+      ])))
+      (optional cfg.advanced.vllm python312Packages.vllm)
+      (optional cfg.advanced.fineTuning (python312.withPackages (ps: with ps; [
+        torch transformers accelerate peft bitsandbytes trl datasets flash-attn
+      ])))
+      (optional cfg.advanced.foldingAtHome foldingathome)
     ];
 
     services.pipewire = mkIf cfg.voice.enable {
@@ -188,6 +220,19 @@ in
         WorkingDirectory = "/var/lib/open-webui";
         Restart = "on-failure";
         RestartSec = 5;
+      };
+    };
+
+    systemd.services.foldingathome = mkIf cfg.advanced.foldingAtHome {
+      description = "Folding@Home Protein Folding Client";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.foldingathome}/bin/FAHClient";
+        DynamicUser = true;
+        StateDirectory = "foldingathome";
+        WorkingDirectory = "/var/lib/foldingathome";
+        Restart = "always";
       };
     };
 
