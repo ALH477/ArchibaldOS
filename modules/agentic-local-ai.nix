@@ -1,4 +1,6 @@
-
+# Copyright ©️ DeMoD LLC 
+# See LICENSE for legal details
+#
 # modules/agentic-local-ai.nix
 # Declarative NixOS module for a complete local agentic AI stack on ArchibaldOS:
 # - Ollama with optional CUDA acceleration
