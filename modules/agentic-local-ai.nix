@@ -1,3 +1,4 @@
+
 # modules/agentic-local-ai.nix
 # Declarative NixOS module for a complete local agentic AI stack on ArchibaldOS:
 # - Ollama with optional CUDA acceleration
@@ -6,7 +7,8 @@
 # - Open WebUI as powerful agentic frontend (tools, pipelines, RAG, multi-model, image upload)
 # - Local STT (via Open WebUI's built-in Local Whisper / faster-whisper)
 # - Local TTS (Piper with hardware-optimized voice selection)
-# - Low-latency PipeWire configuration for real-time voice on ArchibaldOS
+# - High-quality, low-latency PipeWire configuration (96 kHz / 128-sample quantum default)
+#   → 24-bit depth is automatically negotiated where hardware supports it (standard for pro audio)
 
 { config, lib, pkgs, ... }:
 
@@ -122,7 +124,10 @@ in
     ] ++ (optional cfg.voice.enable piper-tts)
       ++ (optional cfg.voice.enable whisper-cpp);
 
-    # Low-latency PipeWire for real-time voice (ties into existing JACK/Tone Assistant workflows)
+    # High-quality, low-latency PipeWire (96 kHz, 128-sample quantum default)
+    # → ~2.7 ms theoretical round-trip latency
+    # → 24-bit depth automatically negotiated on supported hardware (standard for pro audio)
+    # → Ties perfectly into JACK/Tone Assistant DSP workflows
     services.pipewire = mkIf cfg.voice.enable {
       enable = true;
       alsa.enable = true;
@@ -130,12 +135,12 @@ in
       pulse.enable = true;
       jack.enable = true;
 
-      extraConfig.pipewire."91-low-latency" = {
+      extraConfig.pipewire."91-high-quality-low-latency" = {
         "context.properties" = {
-          "default.clock.rate" = 48000;
-          "default.clock.quantum" = 32;
-          "default.clock.min-quantum" = 32;
-          "default.clock.max-quantum" = 32;
+          "default.clock.rate" = 96000;
+          "default.clock.quantum" = 128;
+          "default.clock.min-quantum" = 128;
+          "default.clock.max-quantum" = 128;
         };
       };
     };
