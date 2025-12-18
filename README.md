@@ -1,6 +1,8 @@
 # ArchibaldOS: Professional Real-Time Audio Operating System
 **© 2025 DeMoD LLC. All rights reserved.**
-V.09
+
+*V.09*
+
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-yellow.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![Nix Flake](https://img.shields.io/badge/Built%20with-Nix-blue.svg)](https://nixos.org/)
 [![Multi-Architecture](https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-green.svg)](https://nixos.org/)
