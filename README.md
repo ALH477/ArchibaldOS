@@ -179,8 +179,8 @@ For even easier customization, use the new **`profile-selector.nix` module** to 
 
 | Profile | Description | Target Platforms | Key Modules |
 |---------|-------------|------------------|-------------|
-| **audio-workstation** | Pro Audio Workstation | x86_64 | audio, desktop, rt-kernel |
-| **audio-live-iso** | Live Audio ISO | x86_64 | iso, audio, branding |
+| **audio-workstation** | Pro Audio Workstation | x86_64 | audio, desktop, rt-kernel, branding |
+| **audio-live-iso** | Live Audio ISO | x86_64 | iso, audio, branding, rt-kernel |
 | **agentic-ai-workstation** | Agentic Local AI Workstation (GPU recommended) | x86_64 | agentic-local-ai, audio, desktop, rt-kernel |
 | **neural-amp-studio** | Neural Amp Modeling Studio (audio + Tone Assistant) | x86_64 | audio, desktop, rt-kernel, tone-assistant |
 | **drone-brain** | Drone Flight Controller | ARM64 | robotics, lidar, rt-kernel |
