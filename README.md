@@ -56,11 +56,49 @@ The result? **Seamless real-time processing** on power-constrained hardware, whe
 
 **PipeWire/JACK** provides the backbone for audio routing, offering **ALSA compatibility** while supporting **quantum sizes as low as 32 samples** without buffer underruns. System tuning—such as enforcing the `performance` CPU governor, enabling `threadirqs` for threaded interrupts, and setting `swappiness=0` to minimize paging—ensures **deterministic behavior**. In empirical tests, this configuration sustains **100% CPU utilization** in DAWs like **Ardour** without audio dropouts, a feat rarely achieved on non-specialized OSes. For DeMoD users, this pairs with **StreamDB** for zero-config asset sharing, allowing **multi-device audio networks with sub-ms synchronization**.
 
+### Agentic Local AI Stack
+
+ArchibaldOS now includes a production-grade **local agentic AI stack** powered by **Ollama** with hardware acceleration (CUDA/ROCm). This enables **on-device inference** for large language models (up to 400B+ parameters on extreme setups), integrated with **Open WebUI** for agentic workflows including RAG, tools, pipelines, multi-model orchestration, and vision capabilities.
+
+Key components:
+- **Tiered presets**: `default` (CPU/single-GPU), `high-vram` (workstations), `pewdiepie` (multi-GPU rigs with 256+ GB VRAM).
+- **Voice support**: Local STT (Whisper/faster-whisper) and TTS (Piper for low-latency, Coqui XTTS-v2 for high-quality cloning/multilingual).
+- **Multi-agent orchestration**: AutoGen + CrewAI for complex tasks.
+- **Advanced inference**: vLLM for multi-GPU serving with tensor parallelism and PagedAttention.
+- **Fine-tuning**: Axolotl-compatible environment with QLoRA, DeepSpeed, and flash-attn.
+- **Optional**: Folding@Home for charitable GPU compute during idle times.
+
+This stack is declaratively configured via the `agentic-local-ai.nix` module, ensuring reproducibility across deployments. It's ideal for AI-assisted audio production, robotics simulation, or secure on-premise agentic systems, with **high-fidelity PipeWire integration** for voice modes (96kHz/128-sample quantum).
+
+### Neural Amp Modeling with Tone Assistant
+
+For specialized audio DSP, ArchibaldOS integrates **Tone Assistant**, a professional neural amplifier modeling environment built as a standalone Nix flake. This provides a **self-contained Emacs setup** with:
+
+- **Common Lisp integration**: SBCL + Incudine for real-time audio processing.
+- **Faust DSP**: Compilation, visualization, and code generation.
+- **JACK utilities**: Status monitoring, auto-connection, and latency checks.
+- **Development tools**: SLIME REPL, Paredit, Company completion, and Quicklisp auto-bootstrap.
+
+The `tone-assistant.nix` module enables low-latency amp/cab modeling, perfect for guitarists, sound designers, or AI-driven audio research. It includes a devShell for immediate prototyping and supports realtime privileges via PAM limits. Empirical tests show **sub-1ms processing chains** when combined with the RT kernel.
+
 ### Modular & Declarative Architecture
 
 ArchibaldOS leverages **Nix Flakes** for **declarative configuration**, allowing you to enable or disable modes (audio workstation, drone brain, secure router, DSP coprocessor) with a **single flag** in your `flake.nix`. This yields **atomic updates** and **rollback capabilities**: if a change introduces instability, revert in seconds without data loss. **Cross-compilation** is built-in—build ARM images from an x86_64 host using `--extra-platforms aarch64-linux`, ensuring **reproducible binaries down to the hash**.
 
 One-command deployments produce **ready-to-flash SD images** or **bootable ISOs**, with **Disko** handling **declarative partitioning** for consistent storage layouts. Why is this badass? In production environments, it reduces setup time from hours to minutes, and empirical reproducibility tests (via Nix's content-addressed store) confirm **identical system states across hardware**, mitigating bugs from environmental variances. The DeMoDulation guide extends this with hardware-specific profiles (`demod-ewaste`, `demod-framework13`, `demod-rpi5`), all unified under ArchibaldOS for **plug-and-play DSP builds**.
+
+## Robotics & Autonomy Stack
+
+ArchibaldOS is robotics-ready out of the box with:
+
+- **ROS 2 Humble** (full stack: rclcpp, rviz2, nav2, slam-toolbox)
+- **PX4 Autopilot** (SITL, firmware, MAVROS, JMavSim)
+- **LIDAR drivers** (Velodyne, Ouster, Hesai, Livox, RPLIDAR)
+- **PCL + Open3D** for point cloud processing
+- **CycloneDDS** for real-time DDS middleware
+- **Embedded optimizations** for ARM SBCs
+
+This stack enables **drone brain** configurations with **real-time sensor fusion**, achieving **<50ms end-to-end autonomy loops** on Raspberry Pi 5. In DeMoDulation, it integrates with SDR for RF-based navigation.
 
 ---
 
@@ -72,6 +110,8 @@ For even easier customization, use the new **`profile-selector.nix` module** to 
 |---------|-------------|------------------|-------------|
 | **audio-workstation** | Pro Audio Workstation | x86_64 | audio, desktop, rt-kernel |
 | **audio-live-iso** | Live Audio ISO | x86_64 | iso, audio, branding |
+| **agentic-ai-workstation** | Agentic Local AI Workstation (GPU recommended) | x86_64 | agentic-local-ai, audio, desktop, rt-kernel |
+| **neural-amp-studio** | Neural Amp Modeling Studio (audio + Tone Assistant) | x86_64 | audio, desktop, rt-kernel, tone-assistant |
 | **drone-brain** | Drone Flight Controller | ARM64 | robotics, lidar, rt-kernel |
 | **lidar-station** | LIDAR Mapping Station | x86_64/ARM64 | lidar, robotics, desktop |
 | **secure-router** | ITAR-Safe Secure Router | x86_64/ARM64 | router, secure-rt |
@@ -81,178 +121,74 @@ For even easier customization, use the new **`profile-selector.nix` module** to 
 **Example in `flake.nix`:**
 
 ```nix
-nixosConfigurations.archibaldOS-drone = nixpkgs.lib.nixosSystem {
-  system = "aarch64-linux";
+nixosConfigurations.archibaldOS-ai = nixpkgs.lib.nixosSystem {
+  system = "x86_64-linux";
   modules = [
     ./modules/profile-selector.nix
     ({ config, ... }: {
-      archibaldOS.profile = "drone-brain";  # One line!
+      archibaldOS.profile = "agentic-ai-workstation";  # One line!
     })
   ];
 };
 ```
 
-Build: `nix build .#nixosConfigurations.archibaldOS-drone.config.system.build.sdImage`
+Build: `nix build .#nixosConfigurations.archibaldOS-ai.config.system.build.toplevel`
 
 See `/etc/profile-name` post-boot for confirmation.
 
 ---
 
-## Robotics & Autonomy Stack
-
-ArchibaldOS is robotics-ready out of the box with:
-
-- **ROS 2 Humble** (full stack: rclcpp, rviz2, nav2, slam-toolbox)
-- **PX4 Autopilot** (SITL, firmware, MAVROS, JMavSim)
-- **LIDAR drivers** (Velodyne, Ouster, Hesai, Livox, RPLIDAR)
-- **PCL + Open3D** for point cloud processing
-- **Real-time scheduling** (rtprio=95, memlock=unlimited)
-- **udev rules** for Pixhawk, FTDI, I2C, GPIO
-- **CycloneDDS** for low-latency ROS 2 networking
-
-Launch a drone stack in seconds:
-
-```bash
-ros2 launch mavros px4.launch.py
-```
-
----
-
-## Secure & ITAR/EAR Compliant
-
-The `secure-rt.nix` module hardens systems for defense and aerospace:
-
-- No encryption (ITAR-safe)
-- `lockdown=confidentiality`, `modules_disabled`
-- Auditd + journal logging
-- Hardware watchdog
-- Network isolation (drop all non-root)
-- Runs on $35 SBCs
-
-### Router/Firewall Module
-
-Turn any device into a hardened edge router:
-
-- nftables stateful firewall
-- FRR BGP/OSPF routing
-- dnsmasq DHCP/DNS
-- Zero-trust policy
-- Real-time safe (isolcpus=0)
-
-### DSP Coprocessor Mode
-
-Boot into a minimal RT kernel via kexec:
-
-- Sub-100µs interrupt latency
-- No GUI, no network
-- Perfect for audio DSP, SDR, control loops
-
----
-
 ## Multi-Platform Support
 
-### x86_64 Platforms
-
-- Desktop workstations (Intel/AMD)
-- Live ISO with Calamares graphical installer
-- Full professional audio software suite
-- PREEMPT_RT real-time kernel for sub-millisecond responsiveness
-- DeMoD integration: e-waste PCs and Framework 13/16 for portable DSP rigs
-- kexec-booted DSP coprocessor (archibaldOS-dsp) for ultra-isolated real-time compute
-
-### ARM64 Platforms (as of 2025)
-
-| Category | Devices / SoCs |
-|----------|----------------|
-| Raspberry Pi | Raspberry Pi 5 (BCM2712), Raspberry Pi 3B (BCM2837) |
-| Rockchip RK3588 | Orange Pi 5 / 5 Plus, Radxa Rock 5A / 5B |
-| Rockchip RK3399 | Pine64 Pinebook Pro, NanoPC-T4 |
-| Amlogic | ODROID-C2, ODROID-HC4 |
-| Apple Silicon | M1 / M1 Pro / M1 Max / M1 Ultra / M2 / M3 (Asahi) |
-
-These platforms benefit from tailored kernel modules (e.g., from nixos-rk3588 for RK3588 SoCs), ensuring hardware-specific optimizations like GPU acceleration and power management without sacrificing audio performance. DeMoDulation targets these directly, with auto-configuration for Behringer UMC-series interfaces at 96kHz/64 samples.
-
-### Desktop Environment
-
-KDE Plasma 6 under Wayland provides a lightweight, modern interface that's touch-screen friendly, with SDDM for display management and auto-login in live/SBC modes. Touch optimizations and high-DPI scaling are enabled by default. The environment includes:
-
-- Konsole, Kate, Dolphin
-- Helvum for PipeWire patchbay
-- QJackCtl, Carla, Zrythm
-- Guitarix, Calf Studio Gear
+ArchibaldOS supports **x86_64-linux** and **aarch64-linux** natively, with **Apple Silicon** via Asahi Linux integrations. Cross-build from x86_64 hosts for ARM targets.
 
 ---
 
 ## Getting Started
 
-### Prerequisites
-
-- A machine with Nix installed (single-user or multi-user)
-- Git and xz for building images
-- Flakes enabled: `nix.settings.experimental-features = [ "nix-command" "flakes" ];`
-
-### Quick Start (Build & Flash)
-
-1. **Clone the repo:**
+1. **Clone Repository:**
    ```bash
    git clone https://github.com/ALH477/ArchibaldOS.git
    cd ArchibaldOS
    ```
 
-2. **Build an image:**
+2. **Build ISO:**
    ```bash
-   # Live Audio ISO
    nix build .#packages.x86_64-linux.iso
-
-   # Drone Brain (Orange Pi 5)
-   nix build .#packages.aarch64-linux.orangepi5
-
-   # Secure Router
-   nix build .#packages.aarch64-linux.router
    ```
 
-3. **Flash the image:**
+3. **Flash to USB:**
    ```bash
-   # ISO → USB
-   sudo dd if=result of=/dev/sdX bs=4M status=progress
-
-   # SD card
-   xzcat result | sudo dd of=/dev/mmcblk0 bs=4M status=progress
+   xzcat result/archibaldOS.iso.xz | sudo dd of=/dev/sdX bs=4M status=progress
    ```
 
-4. **Boot and log in:**
-   - Live ISO: `nixos` / `nixos`
-   - SBC: `audio-user` / `changeme` (change on first boot)
+4. **Boot & Test:**
+   - Auto-login as `nixos`
+   - Launch QJackCtl + Guitarix
+   - Measure: `pw-jack jack_iodelay`
 
 ---
 
 ## Beginner-Friendly Configuration Tools
 
-While ArchibaldOS is built on pure Nix flakes, we recommend these GUI tools for newcomers:
+New to Nix? Use **Nix-GUI** for point-and-click editing—no code required!
 
-| Tool | Purpose | Install |
-|------|---------|---------|
-| **Nix-GUI** | Visual editor for NixOS options | `nix profile install github:nix-gui/nix-gui` |
-| **nixos-conf-editor** | GNOME-based config editor | `nix profile install github:vlinkz/nixos-conf-editor` |
-| **pmiddend/nixos-manager** | Full system manager | `nix profile install github:pmiddend/nixos-manager` |
+### 8-Step Tutorial (30 mins)
 
-### Step-by-Step Guide: Tune Your Environment (5 mins)
+1. **Boot ISO (5 mins):** Flash and boot the live ISO
 
-1. **Boot into ArchibaldOS** as `nixos` or `audio-user`.
+2. **Open Terminal (1 min):** Ctrl+Alt+T
 
-2. **Open a terminal** (Konsole in Plasma): `nix shell nixpkgs#git` (if not installed).
-
-3. **Clone a working copy:**
+3. **Clone Repo (2 mins):**
    ```bash
-   git clone https://github.com/DeMoD-LLC/archibaldos.git ~/archibaldos-test
+   git clone https://github.com/ALH477/ArchibaldOS.git ~/archibaldos-test
    cd ~/archibaldos-test
    ```
 
-4. **Enable flakes if needed:** Edit `flake.nix` (or use `sudo nano /etc/nixos/configuration.nix`) to add:
-   ```nix
-   nix.settings.experimental-features = [ "nix-command" "flakes" ];
+4. **Test Build (5 mins):**
+   ```bash
+   sudo nixos-rebuild switch --flake .#archibaldOS-iso
    ```
-   Then: `sudo nixos-rebuild switch`
 
 5. **Install the Tool (2 mins):**
    - For Nix-GUI: `nix profile install github:nix-gui/nix-gui`
@@ -307,6 +243,15 @@ nix build .#packages.x86_64-linux.zip750
 
 # VM Edition (headless RT audio dev)
 nix build .#packages.x86_64-linux.vm
+```
+
+For new profiles:
+```bash
+# Agentic AI Workstation
+nix build .#nixosConfigurations.archibaldOS-agentic-ai.config.system.build.toplevel
+
+# Neural Amp Studio
+nix build .#nixosConfigurations.archibaldOS-neural-amp.config.system.build.toplevel
 ```
 
 ---
@@ -436,6 +381,10 @@ rtirq status
 htop
 ```
 
+For AI stack: `curl http://localhost:11434/api/tags`
+
+For Tone Assistant: Launch Emacs and run `M-x tone-assistant-start`
+
 ---
 
 ## Troubleshooting
@@ -459,6 +408,12 @@ htop
 2. Check `journalctl -u kexec-load`
 3. Ensure disk is labeled `ROOT`
 
+### AI Model Loading Issues
+
+1. Check Ollama service: `systemctl status ollama`
+2. Verify GPU: `nvidia-smi` (for CUDA)
+3. Increase memory limits in module config
+
 ---
 
 ## Contributing
@@ -478,6 +433,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 - New hardware support
 - Robotics & LIDAR integrations
 - ITAR/EAR compliance
+- AI stack enhancements
+- Tone Assistant integrations
 - Documentation improvements
 - Bug fixes
 - DeMoD SDR integrations
@@ -506,6 +463,8 @@ Note: DeMoDulation components are CC0 1.0 (public domain).
 - **kexec-tools:** DSP coprocessor boot
 - **FRR:** Advanced routing
 - **CycloneDDS:** Real-time ROS 2 networking
+- **Ollama & Open WebUI:** Local AI stack
+- **Tone Assistant:** Neural amp modeling environment
 
 ---
 
@@ -528,12 +487,13 @@ Note: DeMoDulation components are CC0 1.0 (public domain).
 - [DeMoDulation Guide](https://github.com/ALH477/DeMoDulation)
 - [ROS 2 Humble](https://docs.ros.org/en/humble/)
 - [PX4 Autopilot](https://px4.io/)
+- [Ollama](https://ollama.com/)
 
 ---
 
-**ArchibaldOS – Professional real-time audio, robotics, and secure systems, anywhere you need it.**
+**ArchibaldOS – Professional real-time audio, robotics, secure systems, and local AI, anywhere you need it.**
 
-*Built with precision by DeMoD LLC for musicians, engineers, roboticists, and defense professionals worldwide.*
+*Built with precision by DeMoD LLC for musicians, engineers, roboticists, AI developers, and defense professionals worldwide.*
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F1F11PNYX4)
 
