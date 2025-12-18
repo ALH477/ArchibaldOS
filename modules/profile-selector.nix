@@ -4,8 +4,8 @@
 #
 # Profile selector: One-line build switching.
 #   archibaldOS.profile = "audio-workstation";
-#   archibaldOS.profile = "drone-brain";
-#   archibaldOS.profile = "secure-router";
+#   archibaldOS.profile = "agentic-ai-workstation";
+#   archibaldOS.profile = "neural-amp-studio";
 
 { config, pkgs, lib, ... }:
 
@@ -47,6 +47,64 @@ let
         archibaldOS.rtKernel = { enable = true; variant = "standard"; };
         isoImage.squashfsCompression = "gzip -Xcompression-level 1";
         users.users.nixos.initialPassword = "nixos";
+        services.displayManager.autoLogin = { enable = true; user = "nixos"; };
+        system.stateVersion = "24.11";
+      };
+    };
+
+    # ── AI ────────────────────────────────────────────────────────
+    "agentic-ai-workstation" = {
+      description = "Agentic Local AI Workstation (x86_64, GPU recommended)";
+      modules = [
+        ./modules/base.nix
+        ./modules/audio.nix  # PipeWire for voice support
+        ./modules/desktop.nix
+        ./modules/users.nix
+        ./modules/branding.nix
+        ./modules/rt-kernel.nix
+        ./modules/agentic-local-ai.nix  # New AI module
+      ];
+      config = {
+        archibaldOS.rtKernel = { enable = true; variant = "cachyos-rt-bore"; };
+
+        # Agentic AI configuration
+        services.agentic-local-ai = {
+          enable = true;
+          preset = "high-vram";          # Balanced for professional GPUs
+          acceleration = "cuda";         # Enable CUDA (set to "rocm" or null if needed)
+          enableWebUI = true;
+          voice.enable = true;
+          multiAgent.enable = true;
+          advanced.vllm.enable = true;   # Production inference
+          advanced.fineTuning.enable = true;
+        };
+
+        services.displayManager.autoLogin = { enable = true; user = "nixos"; };
+        system.stateVersion = "24.11";
+      };
+    };
+
+    # ── NEURAL AMP MODELING ───────────────────────────────────────
+    "neural-amp-studio" = {
+      description = "Neural Amp Modeling Studio (x86_64 audio + Tone Assistant)";
+      modules = [
+        ./modules/base.nix
+        ./modules/audio.nix
+        ./modules/desktop.nix
+        ./modules/users.nix
+        ./modules/branding.nix
+        ./modules/rt-kernel.nix
+        (import ../tone-assistant.nix).nixosModules.tone-assistant  # Import the standalone flake's module
+      ];
+      config = {
+        archibaldOS.rtKernel = { enable = true; variant = "cachyos-rt-bore"; };
+
+        # Tone Assistant integration
+        programs.tone-assistant = {
+          enable = true;
+          # package = defaults to the flake-provided emacsWithToneAssistant
+        };
+
         services.displayManager.autoLogin = { enable = true; user = "nixos"; };
         system.stateVersion = "24.11";
       };
