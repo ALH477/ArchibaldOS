@@ -1,16 +1,17 @@
-# Copyright ©️ DeMoD LLC 
-# See LICENSE for legal details
+# Copyright ©️ DeMoD LLC - see LICENSE 
 #
-# modules/agentic-local-ai.nix
+#modules/agentic-local-ai.nix
 # Declarative NixOS module for a complete local agentic AI stack on ArchibaldOS:
 # - Ollama with optional CUDA acceleration
 # - Preloaded text + vision models (with presets for different hardware tiers)
 # - llama.cpp as high-performance alternative backend
-# - Open WebUI as powerful agentic frontend (tools, pipelines, RAG, multi-model, image upload)
+# - Open WebUI as powerful agentic frontend (tools, pipelines, RAG, multi-model, image/audio upload)
 # - Local STT (via Open WebUI's built-in Local Whisper / faster-whisper)
-# - Local TTS (Piper with hardware-optimized voice selection)
-# - High-quality, low-latency PipeWire configuration (96 kHz / 128-sample quantum default)
-#   → 24-bit depth is automatically negotiated where hardware supports it (standard for pro audio)
+# - Local TTS:
+#   - Piper (default: fast, low-latency, multiple voices)
+#   - Optional Coqui XTTS-v2 (community-maintained high-quality multilingual + voice cloning)
+# - Optional AutoGen + CrewAI for advanced multi-agent workflows (Ollama-native)
+# - High-quality, low-latency PipeWire (96 kHz / 128-sample quantum default)
 
 { config, lib, pkgs, ... }:
 
@@ -21,7 +22,7 @@ let
 in
 {
   options.services.agentic-local-ai = {
-    enable = mkEnableOption "Agentic local AI profile with vision, voice, and agentic tools";
+    enable = mkEnableOption "Agentic local AI profile with vision, voice, multi-agent, and agentic tools";
 
     preset = mkOption {
       type = types.enum [ "default" "high-vram" "pewdiepie" ];
@@ -51,8 +52,12 @@ in
     webuiPort = mkOption { type = types.port; default = 8080; };
     ollamaPort = mkOption { type = types.port; default = 11434; };
 
+    multiAgent = {
+      enable = mkEnableOption "AutoGen and CrewAI for advanced multi-agent orchestration (native Ollama support)";
+    };
+
     voice = {
-      enable = mkEnableOption "Local voice support (STT via Local Whisper + Piper TTS)";
+      enable = mkEnableOption "Local voice support (STT via Local Whisper + multiple TTS engines)";
 
       mode = mkOption {
         type = types.enum [ "fast" "balanced" "high-quality" ];
@@ -60,10 +65,10 @@ in
                   else if cfg.acceleration == "cuda" then "balanced"
                   else "fast";
         description = ''
-          Voice optimization mode:
-          - fast: Low-latency, CPU-friendly (ideal for real-time on ARM or light x86)
+          Voice optimization mode (applies to Piper; XTTS is always high-quality when enabled):
+          - fast: Low-latency, CPU-friendly
           - balanced: Good quality and speed
-          - high-quality: Maximum accuracy and voice fidelity (best on powerful GPUs)
+          - high-quality: Maximum fidelity
         '';
       };
 
@@ -75,12 +80,23 @@ in
                   else "large-v3-turbo";
       };
 
-      recommendedPiperVoice = mkOption {
-        type = types.str;
-        readOnly = true;
-        default = if cfg.voice.mode == "fast" then "en_US-lessac-low"
-                  else if cfg.voice.mode == "balanced" then "en_US-lessac-medium"
-                  else "en_US-amy-high";
+      piperVoices = mkOption {
+        type = types.listOf types.str;
+        default = [
+          "en_US-lessac-low"         # Fast mode
+          "en_US-lessac-medium"      # Balanced
+          "en_US-amy-high"           # High-quality English
+          "en_GB-alan-medium"        # British English
+          "en_US-hfc_male-medium"    # Additional natural male
+          "de_DE-thorsten-high"      # Example multilingual (German)
+        ];
+        description = "Recommended Piper voices for different use cases (use with `piper --model <voice>`)";
+      };
+
+      xtts = {
+        enable = mkEnableOption "Coqui XTTS-v2 (community-maintained) for SOTA multilingual TTS + voice cloning" // {
+          description = "High-quality alternative/complement to Piper; best with CUDA";
+        };
       };
     };
   };
@@ -90,9 +106,8 @@ in
       enable = true;
       port = cfg.ollamaPort;
       acceleration = if cfg.preset == "pewdiepie" then "cuda" else cfg.acceleration;
-      host = "127.0.0.1";  # Secure local-only by default
+      host = "127.0.0.1";
 
-      # Multi-GPU optimizations for high-end setups
       environment = mkIf (cfg.preset != "default") {
         OLLAMA_SCHED_SPREAD = "1";
         OLLAMA_MAX_LOADED_MODELS = "12";
@@ -123,13 +138,22 @@ in
       (llama-cpp.override {
         cudaSupport = (cfg.acceleration == "cuda" || cfg.preset == "pewdiepie");
       })
-    ] ++ (optional cfg.voice.enable piper-tts)
-      ++ (optional cfg.voice.enable whisper-cpp);
+      # Voice core
+      (optional cfg.voice.enable piper-tts)
+      (optional cfg.voice.enable whisper-cpp)
+      # XTTS-v2 (community Coqui)
+      (optional (cfg.voice.enable && cfg.voice.xtts.enable) python312Packages.tts)
+      # Multi-agent frameworks
+      (optional cfg.multiAgent.enable
+        (python312.withPackages (ps: with ps; [
+          pyautogen
+          crewai
+          crewai-tools
+          langchain
+          litellm  # For easy Ollama integration
+        ])))
+    ];
 
-    # High-quality, low-latency PipeWire (96 kHz, 128-sample quantum default)
-    # → ~2.7 ms theoretical round-trip latency
-    # → 24-bit depth automatically negotiated on supported hardware (standard for pro audio)
-    # → Ties perfectly into JACK/Tone Assistant DSP workflows
     services.pipewire = mkIf cfg.voice.enable {
       enable = true;
       alsa.enable = true;
@@ -155,7 +179,7 @@ in
       environment = {
         OLLAMA_API_BASE = "http://127.0.0.1:${toString cfg.ollamaPort}";
         PORT = toString cfg.webuiPort;
-        ENABLE_AUDIO = "true";  # Hint for multimodal/voice features
+        ENABLE_AUDIO = "true";
       };
       serviceConfig = {
         ExecStart = "${pkgs.open-webui}/bin/open-webui serve";
