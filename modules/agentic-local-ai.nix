@@ -236,7 +236,7 @@ let
         ;;
       backup)
         TIMESTAMP=$(date +%Y%m%d_%H%M)
-        tar -czf "$HOME/ai-backup-\( TIMESTAMP.tar.gz" ~/.ollama ~/open-webui-data \){optionalString cfg.advanced.foldingAtHome.enable "~/foldingathome-data"}
+        tar -czf "$HOME/ai-backup-$TIMESTAMP.tar.gz" ~/.ollama ~/open-webui-data ${optionalString cfg.advanced.foldingAtHome.enable "~/foldingathome-data"}
         echo "Backup: $HOME/ai-backup-$TIMESTAMP.tar.gz"
         ;;
       *)
