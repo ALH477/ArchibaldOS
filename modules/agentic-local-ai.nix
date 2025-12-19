@@ -3,7 +3,7 @@
 # Copyright (c) 2025 DeMoD LLC
 # All rights reserved.
 #
-# BSD-style license (full text in original file)
+# BSD-style license (full text in LICENSE)
 #
 # Production-grade declarative NixOS module for a complete local agentic AI stack (Dec 2025):
 # - Ollama with CUDA/ROCm acceleration
