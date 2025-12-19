@@ -1,591 +1,299 @@
-# modules/agentic-local-ai.nix
+# modules/ai/agentic-local-ai.nix
 #
 # BSD-style license (full text in LICENSE)
 # Copyright (c) 2025 DeMoD LLC
 # All rights reserved.
 #
-# Production-grade declarative NixOS module for a complete local agentic AI stack (December 18, 2025)
+# Refined production-grade declarative NixOS module for a minimal, tiered local agentic AI stack
+# Aligned with ArchibaldOS "Minimal Oligarchy" philosophy (December 19, 2025)
 #
-# Features:
-# - Ollama with CUDA/ROCm acceleration
-# - Tiered hardware presets (default / high-vram / pewdiepie)
-# - Open WebUI as powerful agentic frontend (RAG, tools, pipelines, vision)
-# - High-quality voice via Chatterbox Turbo TTS (installed from source per official guide)
-# - Declarative import of manually downloaded GGUF models (localGgufModels)
-# - vLLM for production multi-GPU inference
-# - Axolotl-compatible fine-tuning environment
-# - Optional Folding@Home
-# - Optional Nexa SDK for multimodal audio models (e.g., OmniAudio-2.6B) installed via official script
-# - High-fidelity low-latency PipeWire audio
+# Core principles applied:
+# - Docker isolation for zero impact on real-time audio determinism
+# - No native heavy services, no curl installers, no pip -e, no main-branch pins
+# - Declarative, immutable compose generated from flake
+# - Tiered presets adjust only performance-critical parameters (parallelism, loaded models, keep-alive)
+# - Optional extensions kept minimal and fully containerized
+# - Reduced attack surface: localhost-only by default, user-level execution
+# - Lower jitter: Isolated containers, no competing native processes
 
-{ config, lib, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 with lib;
 
 let
-  cfg = config.services.agentic-local-ai;
+  cfg = config.archibaldos.profiles.ai.agenticLocalAi;
 
   presetConfigs = {
-    default = {
-      models = [
-        "llama3.2:latest"
-        "llama3.2:11b-vision-instruct-q5_K_M"
-        "qwen2.5:32b-instruct-q6_K"
+    cpu-fallback = {
+      description = "CPU-only fallback for systems without GPU acceleration or low-power scenarios. Optimized for smaller models with reasonable response times on modern CPUs.";
+      numParallel = 1;
+      maxLoadedModels = 2;
+      keepAlive = "12h";
+      shmSize = "8gb";
+      acceleration = null;
+      recommendedModels = [
+        "tinyllama:1.1b-chat-q8_0"
+        "phi3:3.8b-mini-128k-instruct-q8_0"
+        "gemma2:2b-instruct-q8_0"
+        "qwen2.5:3b-instruct-q8_0"
       ];
+    };
+
+    default = {
+      description = "Balanced for consumer AMD/NVIDIA GPUs (16–24GB VRAM). With heavy quantization (e.g., Q4_K_M/Q3_K_M) and careful model selection, this tier can function effectively even on 8GB VRAM cards.";
+      numParallel = 4;
       maxLoadedModels = 4;
-      numParallel = 2;
-      memoryLimit = "32G";
-      cpuQuota = "800%";
+      keepAlive = "24h";
+      shmSize = "16gb";
+      recommendedModels = [
+        "llama3.2:3b-instruct-q8_0"
+        "phi3:14b-medium-128k-instruct-q6_K"
+        "qwen2.5-coder:14b-q6_K"
+        "gemma2:27b-instruct-q6_K"
+      ];
     };
 
     high-vram = {
-      models = [
-        "qwen3:72b-instruct-q6_K"
-        "llama3.1:70b-instruct-q5_K_M"
-        "deepseek-r1:67b-q5_K_M"
-        "qwen3-vl:72b-instruct-q4_K_M"
+      description = "Optimized for high-end GPUs (40GB+ VRAM, e.g., RX 7900 XTX, RTX 4090)";
+      numParallel = 8;
+      maxLoadedModels = 6;
+      keepAlive = "48h";
+      shmSize = "32gb";
+      recommendedModels = [
+        "llama3.1:70b-instruct-q6_K"
+        "qwen2.5:72b-instruct-q5_K_M"
+        "deepseek-coder-v2:236b-lite-instruct-q4_K_M"
+        "gemma2:72b-instruct-q5_K_M"
       ];
-      maxLoadedModels = 8;
-      numParallel = 4;
-      memoryLimit = "96G";
-      cpuQuota = "1600%";
     };
 
     pewdiepie = {
-      models = [
-        "deepseek-r1:671b-q3_K_M"
-        "qwen3-vl:235b-instruct-q4_K_M"
+      description = "Extreme tier for multi-GPU monster rigs (requires CUDA, 8+ GPUs)";
+      numParallel = 16;
+      maxLoadedModels = 10;
+      keepAlive = "72h";
+      shmSize = "64gb";
+      recommendedModels = [
         "llama3.1:405b-instruct-q4_K_M"
+        "qwen3:235b-instruct-q4_K_M"
         "deepseek-v3:671b-q3_K_M"
       ];
-      maxLoadedModels = 12;
-      numParallel = 8;
-      memoryLimit = "512G";
-      cpuQuota = "3200%";
     };
   };
 
   currentPreset = presetConfigs.${cfg.preset};
 
-  effectiveModels = if cfg.models != [] then cfg.models else currentPreset.models;
+  effectiveAcceleration = if cfg.acceleration != null then cfg.acceleration else currentPreset.acceleration;
 
-  # Python 3.11 environment for Chatterbox Turbo (official recommended version)
-  chatterboxPython = pkgs.python311;
+  ollamaImage = if effectiveAcceleration == "rocm" then "ollama/ollama:rocm"
+                else "ollama/ollama";  # Default to CPU-capable image
 
-  chatterboxEnv = chatterboxPython.withPackages (ps: with ps; [
-    torchWithCuda
-    fastapi
-    uvicorn
-    pydantic
-  ]);
+  foldingAtHomeService = optionalString cfg.advanced.foldingAtHome.enable ''
+      foldingathome:
+        image: ghcr.io/linuxserver/foldingathome:latest
+        container_name: foldingathome
+        restart: unless-stopped
+        environment:
+          - USER=Anonymous
+          - TEAM=0
+          - ENABLE_GPU=true
+          - ENABLE_SMP=true
+        volumes:
+          - ~/foldingathome-data:/config
+        ${optionalString (effectiveAcceleration == "rocm") ''
+        devices:
+          - /dev/kfd:/dev/kfd
+          - /dev/dri:/dev/dri
+        ''}
+        ${optionalString (effectiveAcceleration == "cuda") ''
+        deploy:
+          resources:
+            reservations:
+              devices:
+                - driver: nvidia
+                  count: all
+                  capabilities: [gpu]
+        ''}
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:7396/api/status"]
+          interval: 60s
+          timeout: 10s
+          retries: 3
+  '';
 
-  # Fetch Chatterbox source from GitHub
-  chatterboxSrc = pkgs.fetchFromGitHub {
-    owner = "resemble-ai";
-    repo = "chatterbox";
-    rev = "main"; # For production, replace with a specific tag/commit
-    sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Replace with actual hash
-  };
+  dockerComposeYml = pkgs.writeText "docker-compose-agentic-ai.yml" ''
+    version: "3.9"
 
-  # Package the source for editable install
-  chatterboxPackage = pkgs.stdenv.mkDerivation {
-    name = "chatterbox-tts-src";
-    src = chatterboxSrc;
-    buildInputs = [ chatterboxPython ];
-    installPhase = ''
-      mkdir -p $out
-      cp -r . $out
-    '';
-  };
+    services:
+      ollama:
+        image: ${ollamaImage}
+        container_name: ollama
+        restart: unless-stopped
+        ipc: host
+        shm_size: "${currentPreset.shmSize}"
+        ${optionalString (effectiveAcceleration == "rocm") ''
+        devices:
+          - /dev/kfd:/dev/kfd
+          - /dev/dri:/dev/dri
+        ''}
+        volumes:
+          - ~/.ollama:/root/.ollama
+        ports:
+          - "127.0.0.1:11434:11434"
+        environment:
+          - OLLAMA_FLASH_ATTENTION=1
+          - OLLAMA_NUM_PARALLEL=${toString currentPreset.numParallel}
+          - OLLAMA_MAX_LOADED_MODELS=${toString currentPreset.maxLoadedModels}
+          - OLLAMA_KEEP_ALIVE=${currentPreset.keepAlive}
+          - OLLAMA_SCHED_SPREAD=1
+          - OLLAMA_KV_CACHE_TYPE=q8_0
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
 
+      open-webui:
+        image: ghcr.io/open-webui/open-webui:main
+        container_name: open-webui
+        restart: unless-stopped
+        volumes:
+          - ~/open-webui-data:/app/backend/data
+        ports:
+          - "127.0.0.1:8080:8080"
+        environment:
+          - OLLAMA_BASE_URL=http://ollama:11434
+          - ENABLE_SIGNUP=false
+          - WEBUI_AUTH=true
+          - DEFAULT_USER_ROLE=admin
+        depends_on:
+          ollama:
+            condition: service_healthy
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:8080"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+
+    ${foldingAtHomeService}
+  '';
+
+  aiStackScript = pkgs.writeShellScriptBin "ai-stack" ''
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! groups | grep -q docker; then
+      echo "Error: User must be in 'docker' group."
+      exit 1
+    fi
+
+    COMPOSE_DIR="$HOME/.config/archibaldos/ai-stack"
+    mkdir -p "$COMPOSE_DIR" "$HOME/.ollama" "$HOME/open-webui-data"
+    ${optionalString cfg.advanced.foldingAtHome.enable ''mkdir -p "$HOME/foldingathome-data"''}
+    chmod 700 "$HOME/.ollama" "$HOME/open-webui-data"
+
+    COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+
+    if [ ! -f "$COMPOSE_FILE" ]; then
+      echo "Deploying minimal tiered Agentic AI stack (${cfg.preset} preset)..."
+      echo "${currentPreset.description}"
+      ${optionalString cfg.advanced.foldingAtHome.enable "echo 'Folding@Home container enabled (contribute to science when idle)'"}
+      cp ${dockerComposeYml} "$COMPOSE_FILE"
+    fi
+
+    ${optionalString (cfg.preset != "cpu-fallback") ''
+    if command -v rocminfo >/dev/null 2>&1; then
+      GFX=$(rocminfo | grep -oP 'gfx\K\d{3,}' | head -1 || echo "")
+      if [ -n "$GFX" ]; then
+        SUGGESTED=$(echo "$GFX" | awk '{printf "%d.%d.0", substr($0,1,length($0)-1), substr($0,length($0))}')
+        echo "Detected gfx$GFX → Add HSA_OVERRIDE_GFX_VERSION=$SUGGESTED to compose if needed"
+      fi
+    fi
+    ''}
+
+    cd "$COMPOSE_DIR"
+
+    case "${1:-start}" in
+      start|up)
+        docker compose pull --quiet
+        docker compose up -d
+        echo "Agentic Local AI (${cfg.preset}) active → http://localhost:8080"
+        ${optionalString cfg.advanced.foldingAtHome.enable "echo 'Folding@Home running in background'"}
+        echo "Recommended models: ${concatStringsSep " " currentPreset.recommendedModels}"
+        ;;
+      stop|down)
+        docker compose down
+        ;;
+      logs)
+        docker compose logs -f "${@:2}"
+        ;;
+      pull)
+        [ -z "${2:-}" ] && echo "Usage: ai-stack pull <model>" && exit 1
+        docker exec -it ollama ollama pull "$2"
+        ;;
+      tune)
+        rocm-smi --showmeminfo vram 2>/dev/null || echo "ROCm not active (CPU mode or no GPU)"
+        ;;
+      backup)
+        TIMESTAMP=$(date +%Y%m%d_%H%M)
+        tar -czf "$HOME/ai-backup-\( TIMESTAMP.tar.gz" ~/.ollama ~/open-webui-data \){optionalString cfg.advanced.foldingAtHome.enable "~/foldingathome-data"}
+        echo "Backup: $HOME/ai-backup-$TIMESTAMP.tar.gz"
+        ;;
+      *)
+        echo "ai-stack [start|stop|logs|pull <model>|tune|backup]"
+        ;;
+    esac
+  '';
 in
 {
-  options.services.agentic-local-ai = {
-    enable = mkEnableOption "Production-grade local agentic AI stack";
+  options.archibaldos.profiles.ai.agenticLocalAi = {
+    enable = mkEnableOption "Minimal tiered agentic local AI stack (Ollama + Open WebUI)";
 
     preset = mkOption {
-      type = types.enum [ "default" "high-vram" "pewdiepie" ];
+      type = types.enum [ "cpu-fallback" "default" "high-vram" "pewdiepie" ];
       default = "default";
-      description = "Hardware tier presets (updated for December 2025 models).";
+      description = "Performance tier preset — adjusts only essential parameters.";
     };
 
     acceleration = mkOption {
       type = types.nullOr (types.enum [ "cuda" "rocm" ]);
-      default = if cfg.preset == "pewdiepie" then "cuda" else null;
-      description = "Hardware acceleration backend (auto-set to CUDA for pewdiepie preset).";
+      default = null;
+      description = "Force acceleration backend (auto-detected via image tag where possible; cpu-fallback preset overrides to null)";
     };
 
-    models = mkOption {
-      type = types.listOf types.str;
-      default = [];
-      description = "Custom model list — overrides preset if non-empty.";
-    };
-
-    modelStoragePath = mkOption {
-      type = types.path;
-      default = "/var/lib/ollama/models";
-      description = "Path for Ollama models (can grow very large).";
-    };
-
-    loadModelsOnStartup = mkOption {
-      type = types.bool;
-      default = false;
-      description = "Pre-load official models at boot via ollama pull.";
-    };
-
-    enableWebUI = mkEnableOption "Open WebUI agentic frontend" // { default = true; };
-
-    webuiPort = mkOption {
-      type = types.port;
-      default = 8080;
-      description = "HTTP port for Open WebUI.";
-    };
-
-    ollamaPort = mkOption {
-      type = types.port;
-      default = 11434;
-      description = "HTTP port for Ollama API.";
-    };
-
-    allowRemoteAccess = mkOption {
-      type = types.bool;
-      default = false;
-      description = "Bind services to 0.0.0.0 (requires firewall rules and authentication).";
-    };
-
-    multiAgent.enable = mkEnableOption "Install AutoGen and CrewAI packages for multi-agent orchestration";
-
-    voice = {
-      enable = mkEnableOption "High-quality local voice support via Chatterbox Turbo TTS" // { default = true; };
-
-      chatterbox = {
-        port = mkOption {
-          type = types.port;
-          default = 8083;
-          description = "Port for Chatterbox Turbo OpenAI-compatible TTS server";
-        };
-
-        host = mkOption {
-          type = types.str;
-          default = "127.0.0.1";
-          description = "Bind host for Chatterbox Turbo server";
-        };
-      };
-    };
-
-    localGgufModels = mkOption {
-      type = types.listOf (types.submodule {
-        options = {
-          name = mkOption {
-            type = types.str;
-            description = "Ollama model name/tag (e.g., deepseek-r1:67b-local)";
-          };
-          ggufPath = mkOption {
-            type = types.path;
-            description = ''
-              Path to a manually downloaded .gguf file.
-              Place it next to your configuration (e.g., ./models/my-model.gguf).
-              Nix will copy it into the store and import it into Ollama automatically.
-            '';
-          };
-          extraModelfile = mkOption {
-            type = types.lines;
-            default = "";
-            description = ''
-              Additional Modelfile content (TEMPLATE, PARAMETER, SYSTEM, etc.).
-              Recommended: copy from a similar official model via
-              `ollama show --modelfile similar-model`.
-            '';
-          };
-        };
-      });
-      default = [];
-      description = "Declaratively import manually downloaded GGUF models into Ollama.";
-    };
-
-    advanced = {
-      vllm = {
-        enable = mkEnableOption "vLLM for production multi-GPU inference";
-
-        port = mkOption {
-          type = types.port;
-          default = 8000;
-        };
-
-        tensorParallelSize = mkOption {
-          type = types.int;
-          default = if cfg.preset == "pewdiepie" then 8
-                    else if cfg.preset == "high-vram" then 4
-                    else 1;
-        };
-
-        model = mkOption {
-          type = types.str;
-          default = "meta-llama/Meta-Llama-3.1-405B-Instruct";
-          description = "Hugging Face model ID served by vLLM.";
-        };
-      };
-
-      nexaSdk = {
-        enable = mkEnableOption "Nexa SDK for multimodal audio models (e.g., OmniAudio-2.6B)" // { default = false; };
-
-        model = mkOption {
-          type = types.str;
-          default = "NexaAI/OmniAudio-2.6B";
-          description = "Nexa model to serve (auto-downloads GGUF on first use)";
-        };
-
-        port = mkOption {
-          type = types.port;
-          default = 8084;
-          description = "Port for Nexa SDK OpenAI-compatible server";
-        };
-      };
-
-      fineTuning = {
-        enable = mkEnableOption "Axolotl-compatible fine-tuning environment";
-
-        workspacePath = mkOption {
-          type = types.path;
-          default = "/var/lib/llm-training";
-        };
-      };
-
-      foldingAtHome = {
-        enable = mkEnableOption "Folding@Home client";
-
-        gpuEnabled = mkOption {
-          type = types.bool;
-          default = cfg.acceleration != null;
-        };
-      };
+    advanced.foldingAtHome = {
+      enable = mkEnableOption "Optional Folding@Home container (contribute spare cycles to science)";
     };
   };
 
-  config = mkIf cfg.enable (mkMerge [
-    {
-      assertions = [
-        {
-          assertion = cfg.preset == "pewdiepie" -> cfg.acceleration == "cuda";
-          message = "pewdiepie preset requires CUDA acceleration.";
-        }
-        {
-          assertion = cfg.voice.enable -> cfg.acceleration != null;
-          message = "Chatterbox Turbo performs best with GPU acceleration.";
-        }
-        {
-          assertion = cfg.advanced.vllm.enable -> cfg.acceleration == "cuda";
-          message = "vLLM currently requires CUDA.";
-        }
-        {
-          assertion = cfg.advanced.nexaSdk.enable -> cfg.acceleration != null;
-          message = "Nexa SDK multimodal audio models recommend GPU acceleration.";
-        }
-        {
-          assertion = cfg.allowRemoteAccess -> config.networking.firewall.enable;
-          message = "Remote access requires firewall to be enabled.";
-        }
-      ];
+  config = mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.preset == "pewdiepie" -> cfg.acceleration == "cuda";
+        message = "pewdiepie preset requires CUDA (multi-GPU).";
+      }
+      {
+        assertion = cfg.preset == "cpu-fallback" -> effectiveAcceleration == null;
+        message = "cpu-fallback preset must use CPU mode.";
+      }
+    ];
 
-      warnings = [
-        "Local STT and basic TTS are configured in Open WebUI → Admin → Settings → Audio."
-      ] ++ optional cfg.voice.enable
-        "Chatterbox Turbo TTS server running at http://localhost:${toString cfg.voice.chatterbox.port}/v1 (OpenAI-compatible)."
-      ++ optional cfg.advanced.nexaSdk.enable
-        "Nexa SDK server running at http://localhost:${toString cfg.advanced.nexaSdk.port} for native audio understanding.";
-    }
+    virtualisation.docker.enable = mkDefault true;
 
-    # Core Ollama service
-    {
-      services.ollama = {
-        enable = true;
-        port = cfg.ollamaPort;
-        acceleration = cfg.acceleration;
-        host = if cfg.allowRemoteAccess then "0.0.0.0" else "127.0.0.1";
-        package = pkgs.unstable.ollama;
+    users.users.asher.extraGroups = [ "docker" "video" "render" ];
 
-        environment = {
-          OLLAMA_MODELS = cfg.modelStoragePath;
-          OLLAMA_MAX_LOADED_MODELS = toString currentPreset.maxLoadedModels;
-          OLLAMA_NUM_PARALLEL = toString currentPreset.numParallel;
-          OLLAMA_KEEP_ALIVE = "10m";
-        };
+    environment.systemPackages = with pkgs; [
+      docker-compose
+      rocmPackages.rocm-smi
+      rocmPackages.rocminfo
+      aiStackScript
+    ];
 
-        loadModels = mkIf cfg.loadModelsOnStartup effectiveModels;
-      };
-
-      systemd.services.ollama.serviceConfig = {
-        MemoryMax = currentPreset.memoryLimit;
-        CPUQuota = currentPreset.cpuQuota;
-        Nice = -10;
-        IOSchedulingClass = "realtime";
-        IOSchedulingPriority = 0;
-      };
-    }
-
-    # Open WebUI frontend
-    (mkIf cfg.enableWebUI {
-      systemd.services.open-webui = {
-        description = "Open WebUI - Agentic Frontend";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" "ollama.service" ];
-        requires = [ "ollama.service" ];
-
-        environment = {
-          OLLAMA_API_BASE = "http://127.0.0.1:${toString cfg.ollamaPort}";
-          PORT = toString cfg.webuiPort;
-          HOST = if cfg.allowRemoteAccess then "0.0.0.0" else "127.0.0.1";
-          WEBUI_AUTH = toString cfg.allowRemoteAccess;
-        };
-
-        serviceConfig = {
-          ExecStart = "${pkgs.open-webui}/bin/open-webui serve";
-          DynamicUser = true;
-          StateDirectory = "open-webui";
-          WorkingDirectory = "/var/lib/open-webui";
-          Restart = "on-failure";
-          MemoryMax = "8G";
-          CPUQuota = "400%";
-          NoNewPrivileges = true;
-          PrivateTmp = true;
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          ReadWritePaths = [ "/var/lib/open-webui" ];
-        };
-      };
-
-      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.webuiPort cfg.ollamaPort ];
-    })
-
-    # Voice support - Chatterbox Turbo TTS (source install)
-    (mkIf cfg.voice.enable {
-      services.pipewire = {
-        enable = true;
-        alsa.enable = true;
-        alsa.support32Bit = true;
-        pulse.enable = true;
-        jack.enable = true;
-
-        extraConfig.pipewire."91-high-quality-low-latency" = {
-          "context.properties" = {
-            "default.clock.rate" = 96000;
-            "default.clock.quantum" = 128;
-            "default.clock.min-quantum" = 128;
-            "default.clock.max-quantum" = 128;
-          };
-        };
-      };
-
-      systemd.services.chatterbox-tts = {
-        description = "Chatterbox Turbo TTS Server (OpenAI-compatible)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" "pipewire.service" ];
-
-        environment = {
-          CUDA_VISIBLE_DEVICES = mkIf (cfg.acceleration == "cuda") "all";
-          PYTHONUNBUFFERED = "1";
-          PYTHONPATH = "${chatterboxPackage}:${chatterboxEnv}/${chatterboxPython.sitePackages}";
-        };
-
-        serviceConfig = {
-          ExecStart = ''
-            ${chatterboxEnv}/bin/uvicorn chatterbox.server:app \
-              --host ${cfg.voice.chatterbox.host} \
-              --port ${toString cfg.voice.chatterbox.port}
-          '';
-          DynamicUser = true;
-          StateDirectory = "chatterbox-tts";
-          CacheDirectory = "chatterbox-tts";
-          Restart = "on-failure";
-          MemoryMax = "16G";
-          Nice = -5;
-        };
-
-        preStart = ''
-          if [ ! -f /var/lib/chatterbox-tts/installed ]; then
-            ${chatterboxEnv}/bin/pip install -e ${chatterboxPackage} --no-deps
-            mkdir -p /var/lib/chatterbox-tts
-            touch /var/lib/chatterbox-tts/installed
-          fi
-        '';
-      };
-
-      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.voice.chatterbox.port ];
-    })
-
-    # Declarative import of manually downloaded GGUF models
-    (mkIf (cfg.localGgufModels != []) {
-      systemd.tmpfiles.rules = [
-        "d ${cfg.modelStoragePath}/local-ggufs 0755 root root -"
-      ];
-
-      system.activationScripts.importLocalGgufModels = stringAfter [ "var" ] ''
-        ${concatMapStringsSep "\n" (model: let
-          storeGguf = model.ggufPath;
-          destGguf = "${cfg.modelStoragePath}/local-ggufs/${baseNameOf model.ggufPath}";
-          modelfilePath = "${cfg.modelStoragePath}/local-ggufs/${model.name}-Modelfile";
-        in ''
-          echo "Importing local GGUF model: ${model.name}"
-
-          if [ ! -f "${destGguf}" ] || ! ${pkgs.diffutils}/bin/cmp -s ${storeGguf} ${destGguf}; then
-            cp -f ${storeGguf} ${destGguf}
-            chmod 644 ${destGguf}
-          fi
-
-          cat > ${modelfilePath} <<'EOF'
-          FROM ${destGguf}
-          ${model.extraModelfile}
-          EOF
-
-          ${pkgs.ollama}/bin/ollama create ${model.name} -f ${modelfilePath} || true
-        '') cfg.localGgufModels}
-      '';
-    })
-
-    # Nexa SDK multimodal audio support (OmniAudio-2.6B)
-    (mkIf cfg.advanced.nexaSdk.enable {
-      system.activationScripts.installNexaSdk = stringAfter [ "users" "groups" ] ''
-        NEXA_BIN="/usr/local/bin/nexa"
-        if [ ! -f "$NEXA_BIN" ]; then
-          echo "Installing Nexa SDK via official installer script..."
-          ${pkgs.curl}/bin/curl -fsSL https://nexa.ai/install.sh -o /tmp/nexa-install.sh
-          chmod +x /tmp/nexa-install.sh
-          /tmp/nexa-install.sh
-          rm /tmp/nexa-install.sh
-        else
-          echo "Nexa SDK already installed"
-        fi
-      '';
-
-      systemd.services.nexa-server = {
-        description = "Nexa SDK OpenAI-compatible Server (OmniAudio-2.6B)";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-
-        environment = {
-          CUDA_VISIBLE_DEVICES = mkIf (cfg.acceleration == "cuda") "all";
-        };
-
-        serviceConfig = {
-          ExecStart = ''
-            /usr/local/bin/nexa serve \
-              --model ${cfg.advanced.nexaSdk.model} \
-              --port ${toString cfg.advanced.nexaSdk.port}
-          '';
-          Restart = "on-failure";
-          RestartSec = 10;
-          WorkingDirectory = "/var/lib/nexa";
-          StateDirectory = "nexa";
-          CacheDirectory = "nexa";
-          MemoryMax = "16G";
-          Nice = -5;
-        };
-      };
-
-      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.advanced.nexaSdk.port ];
-
-      environment.systemPackages = [
-        (pkgs.writeScriptBin "nexa" ''
-          #!${pkgs.stdenv.shell}
-          exec /usr/local/bin/nexa "$@"
-        '')
-      ];
-    })
-
-    # vLLM high-performance inference
-    (mkIf cfg.advanced.vllm.enable {
-      systemd.services.vllm = {
-        description = "vLLM Multi-GPU Inference Server";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-
-        environment = {
-          CUDA_VISIBLE_DEVICES = "all";
-        };
-
-        serviceConfig = {
-          ExecStart = ''
-            ${pkgs.python312Packages.vllm}/bin/vllm serve ${cfg.advanced.vllm.model} \
-              --host ${if cfg.allowRemoteAccess then "0.0.0.0" else "127.0.0.1"} \
-              --port ${toString cfg.advanced.vllm.port} \
-              --tensor-parallel-size ${toString cfg.advanced.vllm.tensorParallelSize} \
-              --dtype auto \
-              --max-model-len 131072
-          '';
-          DynamicUser = true;
-          StateDirectory = "vllm";
-          CacheDirectory = "vllm";
-          Restart = "on-failure";
-          MemoryMax = currentPreset.memoryLimit;
-          Nice = -10;
-        };
-      };
-
-      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.advanced.vllm.port ];
-    })
-
-    # Fine-tuning environment
-    (mkIf cfg.advanced.fineTuning.enable {
-      users.users.llm-trainer = {
-        isSystemUser = true;
-        group = "llm-trainer";
-        home = cfg.advanced.fineTuning.workspacePath;
-        createHome = true;
-      };
-
-      users.groups.llm-trainer = {};
-
-      systemd.tmpfiles.rules = [
-        "d ${cfg.advanced.fineTuning.workspacePath} 0755 llm-trainer llm-trainer -"
-        "d ${cfg.advanced.fineTuning.workspacePath}/datasets 0755 llm-trainer llm-trainer -"
-        "d ${cfg.advanced.fineTuning.workspacePath}/checkpoints 0755 llm-trainer llm-trainer -"
-        "d ${cfg.advanced.fineTuning.workspacePath}/logs 0755 llm-trainer llm-trainer -"
-      ];
-    })
-
-    # Folding@Home
-    (mkIf cfg.advanced.foldingAtHome.enable {
-      systemd.services.foldingathome = {
-        description = "Folding@Home Client";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-
-        serviceConfig = {
-          ExecStart = "${pkgs.foldingathome}/bin/FAHClient";
-          DynamicUser = true;
-          StateDirectory = "foldingathome";
-          WorkingDirectory = "/var/lib/foldingathome";
-          Restart = "always";
-          Nice = 19;
-        };
-      };
-    })
-
-    # System packages
-    {
-      environment.systemPackages = with pkgs; [
-        ollama
-        (llama-cpp.override {
-          cudaSupport = (cfg.acceleration == "cuda" || cfg.preset == "pewdiepie");
-          rocmSupport = (cfg.acceleration == "rocm");
-        })
-        whisper-cpp
-        piper-tts
-      ] ++ optionals cfg.enableWebUI [ open-webui ]
-        ++ optionals cfg.voice.enable [ chatterboxEnv ]
-        ++ optionals cfg.multiAgent.enable [
-          (python312.withPackages (ps: with ps: [ pyautogen crewai crewai-tools langchain litellm ]))
-        ]
-        ++ optionals cfg.advanced.vllm.enable [ python312Packages.vllm ]
-        ++ optionals cfg.advanced.fineTuning.enable [
-          python312Packages.deepspeed
-          python312Packages.flash-attn
-        ];
-    }
-
-    # Firewall for Ollama
-    {
-      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.ollamaPort ];
-    }
-  ]);
+    system.activationScripts.aiAgentSetup = ''
+      mkdir -p /home/asher/.ollama /home/asher/open-webui-data /home/asher/.config/archibaldos/ai-stack
+      ${optionalString cfg.advanced.foldingAtHome.enable "mkdir -p /home/asher/foldingathome-data"}
+      chown -R asher:users /home/asher/.ollama /home/asher/open-webui-data /home/asher/.config/archibaldos ${optionalString cfg.advanced.foldingAtHome.enable "/home/asher/foldingathome-data"}
+      chmod 700 /home/asher/.ollama /home/asher/open-webui-data
+    '';
+  };
 }
