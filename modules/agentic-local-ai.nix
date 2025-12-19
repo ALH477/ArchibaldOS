@@ -302,6 +302,7 @@ in
         port = cfg.ollamaPort;
         acceleration = cfg.acceleration;
         host = if cfg.allowRemoteAccess then "0.0.0.0" else "127.0.0.1";
+        package = pkgs.unstable.ollama;
 
         environment = {
           OLLAMA_MODELS = cfg.modelStoragePath;
