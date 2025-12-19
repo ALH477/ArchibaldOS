@@ -1,20 +1,22 @@
 # modules/agentic-local-ai.nix
 #
+# BSD-style license (full text in LICENSE)
 # Copyright (c) 2025 DeMoD LLC
 # All rights reserved.
 #
-# BSD-style license (full text in LICENSE)
+# Production-grade declarative NixOS module for a complete local agentic AI stack (December 18, 2025)
 #
-# Production-grade declarative NixOS module for a complete local agentic AI stack (Dec 2025):
+# Features:
 # - Ollama with CUDA/ROCm acceleration
-# - Tiered presets for different hardware capabilities
-# - Open WebUI as powerful agentic frontend (tools, RAG, pipelines, vision)
-# - Local voice support via Open WebUI settings (Whisper STT) + optional XTTS-v2 server
-# - Packages for AutoGen/CrewAI multi-agent orchestration (manual scripting)
-# - vLLM for high-performance multi-GPU inference
+# - Tiered hardware presets (default / high-vram / pewdiepie)
+# - Open WebUI as powerful agentic frontend (RAG, tools, pipelines, vision)
+# - High-quality voice via Chatterbox Turbo TTS (installed from source per official guide)
+# - Declarative import of manually downloaded GGUF models (localGgufModels)
+# - vLLM for production multi-GPU inference
 # - Axolotl-compatible fine-tuning environment
 # - Optional Folding@Home
-# - High-quality low-latency PipeWire audio
+# - Optional Nexa SDK for multimodal audio models (e.g., OmniAudio-2.6B) installed via official script
+# - High-fidelity low-latency PipeWire audio
 
 { config, lib, pkgs, ... }:
 
@@ -67,6 +69,35 @@ let
 
   effectiveModels = if cfg.models != [] then cfg.models else currentPreset.models;
 
+  # Python 3.11 environment for Chatterbox Turbo (official recommended version)
+  chatterboxPython = pkgs.python311;
+
+  chatterboxEnv = chatterboxPython.withPackages (ps: with ps; [
+    torchWithCuda
+    fastapi
+    uvicorn
+    pydantic
+  ]);
+
+  # Fetch Chatterbox source from GitHub
+  chatterboxSrc = pkgs.fetchFromGitHub {
+    owner = "resemble-ai";
+    repo = "chatterbox";
+    rev = "main"; # For production, replace with a specific tag/commit
+    sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Replace with actual hash
+  };
+
+  # Package the source for editable install
+  chatterboxPackage = pkgs.stdenv.mkDerivation {
+    name = "chatterbox-tts-src";
+    src = chatterboxSrc;
+    buildInputs = [ chatterboxPython ];
+    installPhase = ''
+      mkdir -p $out
+      cp -r . $out
+    '';
+  };
+
 in
 {
   options.services.agentic-local-ai = {
@@ -75,9 +106,7 @@ in
     preset = mkOption {
       type = types.enum [ "default" "high-vram" "pewdiepie" ];
       default = "default";
-      description = ''
-        Hardware tier presets (updated for December 2025 models).
-      '';
+      description = "Hardware tier presets (updated for December 2025 models).";
     };
 
     acceleration = mkOption {
@@ -101,7 +130,7 @@ in
     loadModelsOnStartup = mkOption {
       type = types.bool;
       default = false;
-      description = "Pre-load models at boot (significantly increases startup time).";
+      description = "Pre-load official models at boot via ollama pull.";
     };
 
     enableWebUI = mkEnableOption "Open WebUI agentic frontend" // { default = true; };
@@ -109,13 +138,13 @@ in
     webuiPort = mkOption {
       type = types.port;
       default = 8080;
-      description = "Port for Open WebUI.";
+      description = "HTTP port for Open WebUI.";
     };
 
     ollamaPort = mkOption {
       type = types.port;
       default = 11434;
-      description = "Port for Ollama API.";
+      description = "HTTP port for Ollama API.";
     };
 
     allowRemoteAccess = mkOption {
@@ -127,32 +156,51 @@ in
     multiAgent.enable = mkEnableOption "Install AutoGen and CrewAI packages for multi-agent orchestration";
 
     voice = {
-      enable = mkEnableOption "Enable voice-related components (STT/TTS configured in Open WebUI)";
+      enable = mkEnableOption "High-quality local voice support via Chatterbox Turbo TTS" // { default = true; };
 
-      mode = mkOption {
-        type = types.enum [ "fast" "balanced" "high-quality" ];
-        default = if cfg.preset == "pewdiepie" then "high-quality"
-                  else if cfg.acceleration == "cuda" then "balanced"
-                  else "fast";
-        description = "Voice processing mode hint (used for XTTS default).";
-      };
-
-      piperVoices = mkOption {
-        type = types.listOf types.str;
-        default = [ "en_US-lessac-medium" "en_US-amy-high" ];
-        description = "Piper voices to make available (for manual use or future extensions).";
-      };
-
-      xtts = {
-        enable = mkEnableOption "Coqui XTTS-v2 server for high-quality multilingual TTS + voice cloning" // {
-          default = cfg.voice.mode == "high-quality";
-        };
-
+      chatterbox = {
         port = mkOption {
           type = types.port;
           default = 8083;
+          description = "Port for Chatterbox Turbo OpenAI-compatible TTS server";
+        };
+
+        host = mkOption {
+          type = types.str;
+          default = "127.0.0.1";
+          description = "Bind host for Chatterbox Turbo server";
         };
       };
+    };
+
+    localGgufModels = mkOption {
+      type = types.listOf (types.submodule {
+        options = {
+          name = mkOption {
+            type = types.str;
+            description = "Ollama model name/tag (e.g., deepseek-r1:67b-local)";
+          };
+          ggufPath = mkOption {
+            type = types.path;
+            description = ''
+              Path to a manually downloaded .gguf file.
+              Place it next to your configuration (e.g., ./models/my-model.gguf).
+              Nix will copy it into the store and import it into Ollama automatically.
+            '';
+          };
+          extraModelfile = mkOption {
+            type = types.lines;
+            default = "";
+            description = ''
+              Additional Modelfile content (TEMPLATE, PARAMETER, SYSTEM, etc.).
+              Recommended: copy from a similar official model via
+              `ollama show --modelfile similar-model`.
+            '';
+          };
+        };
+      });
+      default = [];
+      description = "Declaratively import manually downloaded GGUF models into Ollama.";
     };
 
     advanced = {
@@ -175,6 +223,22 @@ in
           type = types.str;
           default = "meta-llama/Meta-Llama-3.1-405B-Instruct";
           description = "Hugging Face model ID served by vLLM.";
+        };
+      };
+
+      nexaSdk = {
+        enable = mkEnableOption "Nexa SDK for multimodal audio models (e.g., OmniAudio-2.6B)" // { default = false; };
+
+        model = mkOption {
+          type = types.str;
+          default = "NexaAI/OmniAudio-2.6B";
+          description = "Nexa model to serve (auto-downloads GGUF on first use)";
+        };
+
+        port = mkOption {
+          type = types.port;
+          default = 8084;
+          description = "Port for Nexa SDK OpenAI-compatible server";
         };
       };
 
@@ -206,12 +270,16 @@ in
           message = "pewdiepie preset requires CUDA acceleration.";
         }
         {
-          assertion = cfg.voice.xtts.enable -> cfg.acceleration != null;
-          message = "XTTS-v2 requires GPU acceleration for reasonable performance.";
+          assertion = cfg.voice.enable -> cfg.acceleration != null;
+          message = "Chatterbox Turbo performs best with GPU acceleration.";
         }
         {
           assertion = cfg.advanced.vllm.enable -> cfg.acceleration == "cuda";
-          message = "vLLM currently requires CUDA (ROCm support experimental).";
+          message = "vLLM currently requires CUDA.";
+        }
+        {
+          assertion = cfg.advanced.nexaSdk.enable -> cfg.acceleration != null;
+          message = "Nexa SDK multimodal audio models recommend GPU acceleration.";
         }
         {
           assertion = cfg.allowRemoteAccess -> config.networking.firewall.enable;
@@ -220,14 +288,14 @@ in
       ];
 
       warnings = [
-        "Local STT (Whisper) and basic TTS are configured in Open WebUI → Admin → Settings → Audio."
-      ] ++ optional cfg.multiAgent.enable
-        "AutoGen/CrewAI packages installed — run multi-agent scripts manually."
-      ++ optional cfg.allowRemoteAccess
-        "Remote access enabled: use HTTPS reverse proxy and strong authentication.";
+        "Local STT and basic TTS are configured in Open WebUI → Admin → Settings → Audio."
+      ] ++ optional cfg.voice.enable
+        "Chatterbox Turbo TTS server running at http://localhost:${toString cfg.voice.chatterbox.port}/v1 (OpenAI-compatible)."
+      ++ optional cfg.advanced.nexaSdk.enable
+        "Nexa SDK server running at http://localhost:${toString cfg.advanced.nexaSdk.port} for native audio understanding.";
     }
 
-    # Ollama core service
+    # Core Ollama service
     {
       services.ollama = {
         enable = true;
@@ -254,7 +322,7 @@ in
       };
     }
 
-    # Open WebUI
+    # Open WebUI frontend
     (mkIf cfg.enableWebUI {
       systemd.services.open-webui = {
         description = "Open WebUI - Agentic Frontend";
@@ -266,7 +334,7 @@ in
           OLLAMA_API_BASE = "http://127.0.0.1:${toString cfg.ollamaPort}";
           PORT = toString cfg.webuiPort;
           HOST = if cfg.allowRemoteAccess then "0.0.0.0" else "127.0.0.1";
-          WEBUI_AUTH = toString cfg.allowRemoteAccess;  # Enable built-in auth when remote
+          WEBUI_AUTH = toString cfg.allowRemoteAccess;
         };
 
         serviceConfig = {
@@ -288,7 +356,7 @@ in
       networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.webuiPort cfg.ollamaPort ];
     })
 
-    # Voice components
+    # Voice support - Chatterbox Turbo TTS (source install)
     (mkIf cfg.voice.enable {
       services.pipewire = {
         enable = true;
@@ -307,33 +375,120 @@ in
         };
       };
 
-      # XTTS-v2 server (high-quality TTS)
-      systemd.services.xtts = mkIf cfg.voice.xtts.enable {
-        description = "Coqui XTTS-v2 TTS Server";
+      systemd.services.chatterbox-tts = {
+        description = "Chatterbox Turbo TTS Server (OpenAI-compatible)";
         wantedBy = [ "multi-user.target" ];
         after = [ "network.target" "pipewire.service" ];
 
         environment = {
-          CUDA_VISIBLE_DEVICES = mkIf (cfg.acceleration == "cuda") "0,1,2,3,4,5,6,7";
+          CUDA_VISIBLE_DEVICES = mkIf (cfg.acceleration == "cuda") "all";
+          PYTHONUNBUFFERED = "1";
+          PYTHONPATH = "${chatterboxPackage}:${chatterboxEnv}/${chatterboxPython.sitePackages}";
         };
 
         serviceConfig = {
           ExecStart = ''
-            ${pkgs.python312Packages.tts}/bin/tts-server \
-              --model_name tts_models/multilingual/multi-dataset/xtts_v2 \
-              --port ${toString cfg.voice.xtts.port} \
-              --host ${if cfg.allowRemoteAccess then "0.0.0.0" else "127.0.0.1"}
+            ${chatterboxEnv}/bin/uvicorn chatterbox.server:app \
+              --host ${cfg.voice.chatterbox.host} \
+              --port ${toString cfg.voice.chatterbox.port}
           '';
           DynamicUser = true;
-          StateDirectory = "xtts";
-          CacheDirectory = "xtts";
+          StateDirectory = "chatterbox-tts";
+          CacheDirectory = "chatterbox-tts";
           Restart = "on-failure";
+          MemoryMax = "16G";
+          Nice = -5;
+        };
+
+        preStart = ''
+          if [ ! -f /var/lib/chatterbox-tts/installed ]; then
+            ${chatterboxEnv}/bin/pip install -e ${chatterboxPackage} --no-deps
+            mkdir -p /var/lib/chatterbox-tts
+            touch /var/lib/chatterbox-tts/installed
+          fi
+        '';
+      };
+
+      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.voice.chatterbox.port ];
+    })
+
+    # Declarative import of manually downloaded GGUF models
+    (mkIf (cfg.localGgufModels != []) {
+      systemd.tmpfiles.rules = [
+        "d ${cfg.modelStoragePath}/local-ggufs 0755 root root -"
+      ];
+
+      system.activationScripts.importLocalGgufModels = stringAfter [ "var" ] ''
+        ${concatMapStringsSep "\n" (model: let
+          storeGguf = model.ggufPath;
+          destGguf = "${cfg.modelStoragePath}/local-ggufs/${baseNameOf model.ggufPath}";
+          modelfilePath = "${cfg.modelStoragePath}/local-ggufs/${model.name}-Modelfile";
+        in ''
+          echo "Importing local GGUF model: ${model.name}"
+
+          if [ ! -f "${destGguf}" ] || ! ${pkgs.diffutils}/bin/cmp -s ${storeGguf} ${destGguf}; then
+            cp -f ${storeGguf} ${destGguf}
+            chmod 644 ${destGguf}
+          fi
+
+          cat > ${modelfilePath} <<'EOF'
+          FROM ${destGguf}
+          ${model.extraModelfile}
+          EOF
+
+          ${pkgs.ollama}/bin/ollama create ${model.name} -f ${modelfilePath} || true
+        '') cfg.localGgufModels}
+      '';
+    })
+
+    # Nexa SDK multimodal audio support (OmniAudio-2.6B)
+    (mkIf cfg.advanced.nexaSdk.enable {
+      system.activationScripts.installNexaSdk = stringAfter [ "users" "groups" ] ''
+        NEXA_BIN="/usr/local/bin/nexa"
+        if [ ! -f "$NEXA_BIN" ]; then
+          echo "Installing Nexa SDK via official installer script..."
+          ${pkgs.curl}/bin/curl -fsSL https://nexa.ai/install.sh -o /tmp/nexa-install.sh
+          chmod +x /tmp/nexa-install.sh
+          /tmp/nexa-install.sh
+          rm /tmp/nexa-install.sh
+        else
+          echo "Nexa SDK already installed"
+        fi
+      '';
+
+      systemd.services.nexa-server = {
+        description = "Nexa SDK OpenAI-compatible Server (OmniAudio-2.6B)";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network.target" ];
+
+        environment = {
+          CUDA_VISIBLE_DEVICES = mkIf (cfg.acceleration == "cuda") "all";
+        };
+
+        serviceConfig = {
+          ExecStart = ''
+            /usr/local/bin/nexa serve \
+              --model ${cfg.advanced.nexaSdk.model} \
+              --port ${toString cfg.advanced.nexaSdk.port}
+          '';
+          Restart = "on-failure";
+          RestartSec = 10;
+          WorkingDirectory = "/var/lib/nexa";
+          StateDirectory = "nexa";
+          CacheDirectory = "nexa";
           MemoryMax = "16G";
           Nice = -5;
         };
       };
 
-      networking.firewall.allowedTCPPorts = mkIf (cfg.allowRemoteAccess && cfg.voice.xtts.enable) [ cfg.voice.xtts.port ];
+      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.advanced.nexaSdk.port ];
+
+      environment.systemPackages = [
+        (pkgs.writeScriptBin "nexa" ''
+          #!${pkgs.stdenv.shell}
+          exec /usr/local/bin/nexa "$@"
+        '')
+      ];
     })
 
     # vLLM high-performance inference
@@ -368,7 +523,7 @@ in
       networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.advanced.vllm.port ];
     })
 
-    # Fine-tuning workspace
+    # Fine-tuning environment
     (mkIf cfg.advanced.fineTuning.enable {
       users.users.llm-trainer = {
         isSystemUser = true;
@@ -376,6 +531,7 @@ in
         home = cfg.advanced.fineTuning.workspacePath;
         createHome = true;
       };
+
       users.groups.llm-trainer = {};
 
       systemd.tmpfiles.rules = [
@@ -415,17 +571,20 @@ in
         whisper-cpp
         piper-tts
       ] ++ optionals cfg.enableWebUI [ open-webui ]
-        ++ optionals cfg.voice.xtts.enable [ python312Packages.tts ]
+        ++ optionals cfg.voice.enable [ chatterboxEnv ]
         ++ optionals cfg.multiAgent.enable [
-          (python312.withPackages (ps: with ps: [
-            pyautogen crewai crewai-tools langchain litellm
-          ]))
+          (python312.withPackages (ps: with ps: [ pyautogen crewai crewai-tools langchain litellm ]))
         ]
         ++ optionals cfg.advanced.vllm.enable [ python312Packages.vllm ]
         ++ optionals cfg.advanced.fineTuning.enable [
           python312Packages.deepspeed
           python312Packages.flash-attn
         ];
+    }
+
+    # Firewall for Ollama
+    {
+      networking.firewall.allowedTCPPorts = mkIf cfg.allowRemoteAccess [ cfg.ollamaPort ];
     }
   ]);
 }
