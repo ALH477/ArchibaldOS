@@ -1,4 +1,4 @@
-# modules/ai/agentic-local-ai.nix
+# modules/agentic-local-ai.nix
 #
 # BSD-style license (full text in LICENSE)
 # Copyright (c) 2025 DeMoD LLC
