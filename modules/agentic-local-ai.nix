@@ -1,31 +1,24 @@
-# modules/agentic-local-ai.nix
-#
-# BSD-style license (full text in LICENSE)
-# Copyright (c) 2025 DeMoD LLC
-# All rights reserved.
-#
-# Production-grade declarative NixOS module for minimal, tiered local agentic AI stack
-# Aligned with ArchibaldOS "Minimal Oligarchy" philosophy
+# /etc/nixos/agentic-local-ai.nix
 
 { config, pkgs, lib, ... }:
 
 with lib;
 
 let
-  cfg = config.archibaldos.profiles.ai.agenticLocalAi;
+  cfg = config.services.ollamaAgentic;
 
   userName = "asher";
   userHome = config.users.users.${userName}.home or "/home/${userName}";
   
   # Centralized paths for consistency
   paths = {
-    base = "${userHome}/.config/archibaldos/ai-stack";
+    base = "${userHome}/.config/ollama-agentic/ai-stack";
     ollama = "${userHome}/.ollama";
     openWebui = "${userHome}/open-webui-data";
     foldingAtHome = "${userHome}/foldingathome-data";
     prometheus = "${userHome}/ai-metrics";
     backups = "${userHome}/.local/share/ai-backups";
-    state = "${userHome}/.config/archibaldos/ai-stack/.state";
+    state = "${userHome}/.config/ollama-agentic/ai-stack/.state";
   };
 
   presetConfigs = {
@@ -83,6 +76,42 @@ let
       ];
     };
 
+    rocm-multi = {
+      description = "Multi-GPU ROCm tier: uses both iGPU (780M) and dGPU (7700S) for maximum performance.";
+      numParallel = 12;
+      maxLoadedModels = 8;
+      keepAlive = "72h";
+      maxQueue = 2048;
+      shmSize = "48gb";
+      memoryPressure = "0.75";
+      acceleration = "rocm";
+      minVramGB = 16;
+      recommendedModels = [
+        "llama3.1:70b-instruct-q6_K"
+        "qwen2.5:72b-instruct-q5_K_M"
+        "deepseek-coder-v2:236b-lite-instruct-q4_K_M"
+        "gemma2:27b-instruct-q8_0"
+      ];
+    };
+
+    cuda = {
+      description = "Optimized for NVIDIA CUDA GPUs (8–48GB VRAM). Supports larger models and higher parallelism.";
+      numParallel = 12;
+      maxLoadedModels = 8;
+      keepAlive = "72h";
+      maxQueue = 2048;
+      shmSize = "48gb";
+      memoryPressure = "0.75";
+      acceleration = "cuda";
+      minVramGB = 24;
+      recommendedModels = [
+        "llama3.1:70b-instruct-q6_K"
+        "qwen2.5:72b-instruct-q5_K_M"
+        "mixtral:8x22b-instruct-q4_K_M"
+        "gemma2:27b-instruct-q8_0"
+      ];
+    };
+
     pewdiepie = {
       description = "Extreme tier for multi-GPU monster rigs (requires CUDA, 8+ GPUs, 320GB+ total VRAM)";
       numParallel = 16;
@@ -106,6 +135,8 @@ let
   effectiveAcceleration =
     if cfg.preset == "cpu-fallback" then null
     else if cfg.acceleration != null then cfg.acceleration
+    else if cfg.preset == "rocm-multi" then "rocm"
+    else if cfg.preset == "cuda" then "cuda"
     else currentPreset.acceleration;
 
   ollamaImage =
@@ -137,35 +168,35 @@ let
         metrics_path: '/metrics'
   '';
 
-  # Main docker-compose configuration with proper YAML indentation
+  # Main docker-compose configuration — version key removed, group_add only video, relaxed healthcheck for ROCm startup
   dockerComposeYml = pkgs.writeText "docker-compose-agentic-ai.yml" (
-    "version: \"3.9\"\n\nservices:\n  ollama:\n    image: ${ollamaImage}\n    container_name: ollama\n    restart: unless-stopped\n    ipc: host\n    shm_size: \"${currentPreset.shmSize}\"\n    security_opt:\n      - no-new-privileges:true\n"
+    "services:\n  ollama:\n    image: ${ollamaImage}\n    container_name: ollama\n    restart: unless-stopped\n    ipc: host\n    shm_size: \"${currentPreset.shmSize}\"\n    security_opt:\n      - no-new-privileges:true\n"
     + (if effectiveAcceleration == "rocm" then
-      "    devices:\n      - \"/dev/kfd:/dev/kfd\"\n      - \"/dev/dri:/dev/dri\"\n    group_add:\n      - video\n      - render\n"
-    else if effectiveAcceleration == "cuda" then
-      "    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n        limits:\n          memory: ${currentPreset.shmSize}\n"
-    else "")
+        "    devices:\n      - \"/dev/kfd:/dev/kfd\"\n      - \"/dev/dri:/dev/dri\"\n    group_add:\n      - video\n"
+      else if effectiveAcceleration == "cuda" then
+        "    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n        limits:\n          memory: ${currentPreset.shmSize}\n"
+      else "")
     + (if effectiveAcceleration == "rocm" then
-      "    deploy:\n      resources:\n        limits:\n          memory: ${currentPreset.shmSize}\n"
-    else "")
+        "    deploy:\n      resources:\n        limits:\n          memory: ${currentPreset.shmSize}\n"
+      else "")
     + "    volumes:\n      - ${paths.ollama}:/root/.ollama\n    ports:\n      - \"${cfg.network.ollamaBindAddress}:11434:11434\"\n    environment:\n      OLLAMA_FLASH_ATTENTION: \"1\"\n      OLLAMA_NUM_PARALLEL: \"${toString currentPreset.numParallel}\"\n      OLLAMA_MAX_LOADED_MODELS: \"${toString currentPreset.maxLoadedModels}\"\n      OLLAMA_KEEP_ALIVE: \"${currentPreset.keepAlive}\"\n      OLLAMA_SCHED_SPREAD: \"1\"\n      OLLAMA_KV_CACHE_TYPE: \"q8_0\"\n      OLLAMA_MAX_QUEUE: \"${toString currentPreset.maxQueue}\"\n      OLLAMA_MEMORY_PRESSURE_THRESHOLD: \"${currentPreset.memoryPressure}\"\n"
     + rocmEnvVars
-    + "    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:11434/api/tags || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n      start_period: 60s\n\n  open-webui:\n    image: ghcr.io/open-webui/open-webui:${cfg.advanced.openWebUI.version}\n    container_name: open-webui\n    restart: unless-stopped\n    read_only: true\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n    tmpfs:\n      - /tmp\n      - /var/tmp\n      - /run\n    volumes:\n      - ${paths.openWebui}:/app/backend/data\n    ports:\n      - \"${cfg.network.webUIBindAddress}:8080:8080\"\n    environment:\n      OLLAMA_BASE_URL: http://ollama:11434\n      ENABLE_SIGNUP: \"${if cfg.advanced.openWebUI.enableSignup then "true" else "false"}\"\n      WEBUI_AUTH: \"true\"\n      DEFAULT_USER_ROLE: ${cfg.advanced.openWebUI.defaultUserRole}\n      WEBUI_NAME: \"${cfg.advanced.openWebUI.title}\"\n    depends_on:\n      ollama:\n        condition: service_healthy\n    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:8080/health || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 3\n      start_period: 20s\n"
+    + "    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:11434/api/tags || exit 1\"]\n      interval: 30s\n      timeout: 30s\n      retries: 40\n      start_period: 300s\n\n  open-webui:\n    image: ghcr.io/open-webui/open-webui:${cfg.advanced.openWebUI.version}\n    container_name: open-webui\n    restart: unless-stopped\n    read_only: true\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n    tmpfs:\n      - /tmp\n      - /var/tmp\n      - /run\n    volumes:\n      - ${paths.openWebui}:/app/backend/data\n    ports:\n      - \"${cfg.network.webUIBindAddress}:8080:8080\"\n    environment:\n      OLLAMA_BASE_URL: http://ollama:11434\n      ENABLE_SIGNUP: \"${if cfg.advanced.openWebUI.enableSignup then "true" else "false"}\"\n      WEBUI_AUTH: \"true\"\n      DEFAULT_USER_ROLE: ${cfg.advanced.openWebUI.defaultUserRole}\n      WEBUI_NAME: \"${cfg.advanced.openWebUI.title}\"\n    depends_on:\n      ollama:\n        condition: service_healthy\n    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:8080/health || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 3\n      start_period: 20s\n"
     + (if cfg.advanced.foldingAtHome.enable then
-      "\n  foldingathome:\n    image: ghcr.io/linuxserver/foldingathome:latest\n    container_name: foldingathome\n    restart: unless-stopped\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n    environment:\n      USER: ${cfg.advanced.foldingAtHome.user}\n      TEAM: \"${toString cfg.advanced.foldingAtHome.team}\"\n      ENABLE_GPU: \"true\"\n      ENABLE_SMP: \"true\"\n    volumes:\n      - ${paths.foldingAtHome}:/config\n"
-      + (if effectiveAcceleration == "rocm" then
-        "    devices:\n      - \"/dev/kfd:/dev/kfd\"\n      - \"/dev/dri:/dev/dri\"\n    group_add:\n      - video\n      - render\n"
-      else if effectiveAcceleration == "cuda" then
-        "    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n"
+        "\n  foldingathome:\n    image: ghcr.io/linuxserver/foldingathome:latest\n    container_name: foldingathome\n    restart: unless-stopped\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n    environment:\n      USER: ${cfg.advanced.foldingAtHome.user}\n      TEAM: \"${toString cfg.advanced.foldingAtHome.team}\"\n      ENABLE_GPU: \"true\"\n      ENABLE_SMP: \"true\"\n    volumes:\n      - ${paths.foldingAtHome}:/config\n"
+        + (if effectiveAcceleration == "rocm" then
+            "    devices:\n      - \"/dev/kfd:/dev/kfd\"\n      - \"/dev/dri:/dev/dri\"\n    group_add:\n      - video\n"
+          else if effectiveAcceleration == "cuda" then
+            "    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n"
+          else "")
+        + "    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:7396/api/status || exit 1\"]\n      interval: 60s\n      timeout: 10s\n      retries: 3\n      start_period: 30s\n"
       else "")
-      + "    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:7396/api/status || exit 1\"]\n      interval: 60s\n      timeout: 10s\n      retries: 3\n      start_period: 30s\n"
-    else "")
     + (if cfg.advanced.monitoring.enable then
-      "\n  prometheus:\n    image: prom/prometheus:${cfg.advanced.monitoring.prometheusVersion}\n    container_name: ai-metrics\n    restart: unless-stopped\n    read_only: true\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n    tmpfs:\n      - /tmp\n    volumes:\n      - ${prometheusConfig}:/etc/prometheus/prometheus.yml:ro\n      - ${paths.prometheus}:/prometheus\n    ports:\n      - \"127.0.0.1:9090:9090\"\n    command:\n      - '--config.file=/etc/prometheus/prometheus.yml'\n      - '--storage.tsdb.path=/prometheus'\n      - '--storage.tsdb.retention.time=30d'\n      - '--web.console.libraries=/usr/share/prometheus/console_libraries'\n      - '--web.console.templates=/usr/share/prometheus/consoles'\n    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:9090/-/healthy || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 3\n"
-    else "")
+        "\n  prometheus:\n    image: prom/prometheus:${cfg.advanced.monitoring.prometheusVersion}\n    container_name: ai-metrics\n    restart: unless-stopped\n    read_only: true\n    security_opt:\n      - no-new-privileges:true\n    cap_drop:\n      - ALL\n    tmpfs:\n      - /tmp\n    volumes:\n      - ${prometheusConfig}:/etc/prometheus/prometheus.yml:ro\n      - ${paths.prometheus}:/prometheus\n    ports:\n      - \"127.0.0.1:9090:9090\"\n    command:\n      - '--config.file=/etc/prometheus/prometheus.yml'\n      - '--storage.tsdb.path=/prometheus'\n      - '--storage.tsdb.retention.time=30d'\n      - '--web.console.libraries=/usr/share/prometheus/console_libraries'\n      - '--web.console.templates=/usr/share/prometheus/consoles'\n    healthcheck:\n      test: [\"CMD-SHELL\", \"wget -qO- http://localhost:9090/-/healthy || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 3\n"
+      else "")
   );
 
-  # Comprehensive management script (preserved from original)
+  # Comprehensive management script
   aiStackScript = pkgs.writeShellScriptBin "ai-stack" ''
     #!/usr/bin/env bash
     set -euo pipefail
@@ -308,7 +339,9 @@ let
       '') cfg.preloadModels}
       
       rm -f "$LOCK_FILE"
-      '' else "# No models configured for preload"}
+      '' else ''
+      info "No models configured for preloading"
+      ''}
     }
 
     # Health check
@@ -342,7 +375,7 @@ let
         -C "${userHome}" \
         .ollama \
         open-webui-data \
-        .config/archibaldos/ai-stack \
+        .config/ollama-agentic/ai-stack \
         ${optionalString cfg.advanced.foldingAtHome.enable "foldingathome-data"} \
         2>&1 | tee /tmp/backup.log; then
         error "Backup failed. See /tmp/backup.log for details"
@@ -501,7 +534,7 @@ let
         
         if [ "$SUGGESTED" != "$CURRENT" ]; then
           warn "Consider changing to '$SUGGESTED' preset in your NixOS configuration"
-          info "Edit: archibaldos.profiles.ai.agenticLocalAi.preset = \"$SUGGESTED\";"
+          info "Edit: services.ollamaAgentic.preset = \"$SUGGESTED\";"
         else
           success "Current preset is optimal for your hardware"
         fi
@@ -602,15 +635,16 @@ EOF
 
 in
 {
-  options.archibaldos.profiles.ai.agenticLocalAi = {
-    enable = mkEnableOption "Minimal tiered agentic local AI stack (Ollama + Open WebUI)";
+  options.services.ollamaAgentic = {
+    enable = mkEnableOption "Tiered local AI stack (Ollama + Open WebUI)";
 
     preset = mkOption {
-      type = types.enum [ "cpu-fallback" "default" "high-vram" "pewdiepie" ];
+      type = types.enum [ "cpu-fallback" "default" "high-vram" "rocm-multi" "cuda" "pewdiepie" ];
       default = "default";
       description = mdDoc ''
         Performance tier preset — adjusts parallelism, model capacity, and resource limits.
         
+        Use 'rocm-multi' for AMD iGPU + dGPU setups, 'cuda' for NVIDIA GPUs.
         Run `ai-stack suggest-preset` to get a recommendation based on detected hardware.
       '';
     };
@@ -669,7 +703,7 @@ in
 
         title = mkOption {
           type = types.str;
-          default = "ArchibaldOS AI";
+          default = "Agentic Local AI";
           description = "Custom title for the web interface";
         };
       };
@@ -678,7 +712,7 @@ in
         gfxVersionOverride = mkOption {
           type = types.nullOr types.str;
           default = null;
-          example = "11.0.0";
+          example = "11.0.2";
           description = mdDoc ''
             Override HSA_OVERRIDE_GFX_VERSION for ROCm compatibility.
             Use `ai-stack tune` to detect your GPU's gfx version.
@@ -717,8 +751,15 @@ in
   };
 
   config = mkIf cfg.enable {
-    # Comprehensive validation
     assertions = [
+      {
+        assertion = cfg.preset != "rocm-multi" || effectiveAcceleration == "rocm";
+        message = "rocm-multi requires ROCm acceleration.";
+      }
+      {
+        assertion = cfg.preset != "cuda" || effectiveAcceleration == "cuda";
+        message = "cuda preset requires NVIDIA GPU and CUDA support.";
+      }
       {
         assertion = cfg.preset != "pewdiepie" || effectiveAcceleration == "cuda";
         message = "pewdiepie preset requires CUDA acceleration (multi-GPU NVIDIA setup).";
@@ -745,7 +786,6 @@ in
     ] ++ optional (cfg.preset == "pewdiepie") 
       "pewdiepie preset requires 320GB+ total VRAM across multiple GPUs. Verify your hardware capabilities.";
 
-    # Docker configuration
     virtualisation.docker = {
       enable = true;
       autoPrune = {
@@ -762,12 +802,9 @@ in
       };
     };
 
-    # User configuration
-    users.users.${userName}.extraGroups = [ "docker" ] 
-      ++ optional (effectiveAcceleration == "rocm") "video"
-      ++ optional (effectiveAcceleration == "rocm") "render";
+    users.users.${userName}.extraGroups = [ "docker" ]
+      ++ optionals (effectiveAcceleration == "rocm") [ "video" ];
 
-    # System packages
     environment.systemPackages = with pkgs; [
       docker
       docker-compose
@@ -779,8 +816,7 @@ in
       cudaPackages.nvidia_x11
     ];
 
-    # Systemd service for automatic startup (optional)
-    systemd.services.agentic-ai-stack = mkIf (cfg.advanced.autoStart or false) {
+    systemd.services.agentic-ai-stack = mkIf cfg.advanced.autoStart {
       description = "Agentic Local AI Stack";
       after = [ "docker.service" "network-online.target" ];
       wants = [ "network-online.target" ];
@@ -799,7 +835,6 @@ in
       };
     };
 
-    # Directory setup with proper permissions
     system.activationScripts.aiAgentSetup = stringAfter [ "users" ] ''
       for dir in \
         "${paths.base}" \
@@ -831,24 +866,21 @@ in
       chmod 600 "${paths.state}"/*
     '';
 
-    # Firewall configuration
     networking.firewall.allowedTCPPorts = mkIf (cfg.network.webUIBindAddress != "127.0.0.1" || cfg.network.ollamaBindAddress != "127.0.0.1") (
       optional (cfg.network.webUIBindAddress != "127.0.0.1") 8080
       ++ optional (cfg.network.ollamaBindAddress != "127.0.0.1") 11434
       ++ optional (cfg.advanced.monitoring.enable && cfg.network.ollamaBindAddress != "127.0.0.1") 9090
     );
 
-    # Environment hints
     environment.shellAliases = {
       ai = "ai-stack";
       ollama-logs = "ai-stack logs ollama";
       webui-logs = "ai-stack logs open-webui";
     };
 
-    # Documentation generation
     system.extraSystemBuilderCmds = ''
       cat > $out/ai-stack-info.txt <<'EOF'
-ArchibaldOS Agentic AI Stack Configuration
+Agentic Local AI Stack Configuration
 ==========================================
 
 Preset: ${cfg.preset}
@@ -883,7 +915,7 @@ Data Paths:
 Features:
   Monitoring: ${if cfg.advanced.monitoring.enable then "enabled" else "disabled"}
   Folding@Home: ${if cfg.advanced.foldingAtHome.enable then "enabled" else "disabled"}
-  Auto-start: ${if cfg.advanced.autoStart or false then "enabled" else "disabled"}
+  Auto-start: ${if cfg.advanced.autoStart then "enabled" else "disabled"}
   Preload Models: ${toString (length cfg.preloadModels)}
 
 Security:
