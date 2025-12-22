@@ -1,4 +1,4 @@
-# HydraMesh (formerly DeMoD-LISP / D-LISP) SDK for DeMoD Communication Framework (DCF) WIP -a pain in my ass
+# HydraMesh (formerly DeMoD-LISP / D-LISP) SDK for DeMoD Communication Framework (DCF)
 
 **Version 2.1.0** | **Updated: October 26, 2025**  
 **Developed by DeMoD LLC**
@@ -12,12 +12,12 @@ HydraMesh (formerly DeMoD-LISP / D-LISP) is a high-performance, production-ready
 
 This SDK, developed by **DeMoD LLC** with significant contributions from **Grok 4 Heavy** (xAI's advanced AI model), emphasizes reliability, extensibility, and compliance with U.S. export regulations (no encryption by default). It is part of the DCF mono repository and interoperates with other language SDKs (e.g., C, Python) for cross-platform compatibility. The rebranding to HydraMesh reflects a focus on resilient, multi-headed network topologies, while retaining full compatibility with DCF's command set (e.g., `dcf-send`, `dcf-db-insert`) for seamless migration.
 
-### Efficiency Highlight: ~850 Lines of Code
-HydraMesh achieves its extensive functionality in approximately **850 non-comment, non-blank lines of code** (verified across the core implementation and plugins). This remarkable efficiency is made possible by Common Lisp's expressive features, such as macros (e.g., `def-dcf-plugin` for concise plugin definitions) and CLOS for type-safe abstractions. The enhanced integration of StreamDB adds powerful persistence with minimal overhead, maintaining a lean codebase while delivering a full SDK/DSL. This compactness ensures maintainability, reduces deployment overhead, and highlights Lisp's power for building complex systems with minimal verbosity.
+### Efficiency Highlight: ~899 Lines of Code
+HydraMesh achieves its extensive functionality in approximately **899 non-comment, non-blank lines of code** (verified across the core implementation and plugins). This remarkable efficiency is made possible by Common Lisp's expressive features, such as macros (e.g., `def-dcf-plugin` for concise plugin definitions) and CLOS for type-safe abstractions. The enhanced integration of StreamDB adds powerful persistence with minimal overhead, maintaining a lean codebase while delivering a full SDK/DSL. This compactness ensures maintainability, reduces deployment overhead, and highlights Lisp's power for building complex systems with minimal verbosity.
 
 - **Core Breakdown**:
-  - `d-lisp.lisp` (main SDK/DSL): ~850 lines
-  - Plugins (e.g., LoRaWAN, Serial, CAN, SCTP, Zigbee): ~150 lines total (~21-26 lines each)
+  - `d-lisp.lisp` (main SDK/DSL): ~899 lines
+  - Plugins (e.g., LoRaWAN, Serial, USB, CAN, SCTP, Zigbee): ~2500 lines total (~21-1000 lines each)
 
 ## Key Features
 
@@ -248,6 +248,68 @@ Build executables:
 
 For WASM, compile with CL-WASM tools for browser deployment.
 
+## Key Design Principles:
+
+### 1. **Minimal Core (hydramesh.core)**
+- Only essential abstractions: node, transport protocol, codec registry
+- ~50 lines of code
+- Everything else is optional
+
+### 2. **Independent DSLs**
+Each DSL is a separate package that can be loaded individually:
+
+- **game-net**: Multiplayer gaming (`defgame`, `defplayer-message`)
+- **audio-stream**: Real-time audio (`defaudio-stream`, `stream-audio`)
+- **sensor-net**: IoT sensors (`defsensor`, `on-threshold`)
+- **message-proto**: Protocol buffer-style messages (`defmessage`)
+- **net-topology**: Network configuration (`defnetwork`, `peer`, `group`)
+- **reliability**: Error handling patterns (`with-retry`, `with-circuit-breaker`)
+- **metrics**: Observability (`defcounter`, `with-timing`)
+
+### 3. **Declarative Over Imperative**
+
+Instead of:
+```lisp
+(dcf-send-position "player1" 100.0 50.0 25.0)
+```
+
+You write:
+```lisp
+(defgame fps-match
+  (position-update
+   :fields ((x :float) (y :float) (z :float))
+   :reliable nil))
+```
+
+And get `send-position-update` generated automatically!
+
+### 4. **Composability**
+
+Mix and match DSLs:
+```lisp
+(defpackage :my-game
+  (:use :hydramesh.game-net    ; Gaming
+        :hydramesh.audio-stream ; Voice chat
+        :hydramesh.metrics))    ; Monitoring
+```
+
+### 5. **Zero Boilerplate**
+
+The DSLs handle:
+- ✅ Message encoding/decoding generation
+- ✅ Sender function creation
+- ✅ Handler registration
+- ✅ Type safety
+- ✅ Metrics tracking
+
+### 6. **Domain-Specific Syntax**
+
+Each DSL speaks its domain's language:
+- **Game**: `broadcast`, `tick`, `on-receive`
+- **Audio**: `stream-audio`, `set-codec`, `add-filter`
+- **IoT**: `defsensor`, `report`, `aggregate`
+
+
 ## Why HydraMesh?
 
 - **Performance**: Sub-ms messaging with StreamDB's low-latency persistence.
@@ -260,6 +322,7 @@ For WASM, compile with CL-WASM tools for browser deployment.
 
 - **DeMoD LLC**: Core development and project leadership.
 - **Grok 4 Heavy (xAI)**: AI-driven optimizations and code contributions.
+- **Claude Sonnet (Anthropic)**: To correct Grok.
 - **Open-Source Community**: For libraries like `cl-grpc`, `cffi`, `mgl`, and `streamdb`.
 
 ## License
@@ -269,4 +332,4 @@ This project is licensed under the GNU Lesser General Public License v3.0 (LGPL-
 ---
 
 **DeMoD LLC** | Empowering Scalable, Fault-Tolerant Communication  
-**Built with ❤️ and Lisp** | Powered by **Grok 4 Heavy** & **O B S E S S I O N**
+**Built with ❤️ and Lisp** | Powered by **LLM MONGLOIDS** & **O B S E S S I O N**
