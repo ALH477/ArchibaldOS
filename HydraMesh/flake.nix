@@ -1,5 +1,9 @@
+# HydraMesh/flake.nix
+# Copyright 2025 DeMoD LLC
+# SPDX-License-Identifier: LGPL-3.0
+
 {
-  description = "Nix flake for HydraMesh (D-LISP) SDK – Emacs + SLY focused development";
+  description = "Nix flake for HydraMesh (D-LISP) SDK v2.2.0 – Emacs + SLY focused development";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -15,26 +19,16 @@
           overlays = [ emacs-overlay.overlays.default ];
         };
 
-        # List of required Quicklisp systems from the original code
-        qlSystems = [
-          "cffi" "uuid" "cl-protobufs" "usocket" "bordeaux-threads"
-          "log4cl" "trivial-backtrace" "flexi-streams" "fiveam"
-          "ieee-floats" "cl-json" "jsonschema"
-        ];
-
-        # SBCL with all required dependencies pre-loaded via Nixpkgs lispPackages
         sbclWithDeps = pkgs.sbcl.withPackages (ps: with ps; [
           cffi uuid cl-protobufs usocket bordeauxThreads
           log4cl trivial-backtrace flexiStreams fiveam
           ieee-floats cl-json jsonschema
         ]);
 
-        # Emacs with native compilation and SLY
         emacsWithSly = pkgs.emacsNativeComp.pkgs.withPackages (epkgs: [
           epkgs.sly
         ]);
 
-        # The HydraMesh executable – robust production build
         hydramesh = pkgs.stdenv.mkDerivation {
           pname = "hydramesh";
           version = "2.2.0";
@@ -43,7 +37,6 @@
 
           nativeBuildInputs = [ sbclWithDeps ];
 
-          # Critical: prevent stripping which breaks SBCL executables
           dontStrip = true;
 
           buildPhase = ''
@@ -60,13 +53,24 @@
 
           meta = with pkgs.lib; {
             description = "HydraMesh SDK executable";
-            license = licenses.lgpl3;
+            license = licenses.lgpl3Only;
             platforms = platforms.all;
+            mainProgram = "hydramesh";
           };
         };
 
       in {
         packages.default = hydramesh;
+        packages.hydramesh = hydramesh;
+
+        # Required for ArchibaldOS integration
+        overlays.default = final: prev: {
+          inherit hydramesh;
+        };
+
+        # Export the NixOS module (place the service file at ./nixos-module.nix)
+        nixosModules.default = ./nixos-module.nix;
+        nixosModules.hydramesh = ./nixos-module.nix;
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
@@ -76,30 +80,24 @@
             pkgs.protobuf
             pkgs.openssl
             pkgs.zlib
-            # Optional: for easier dependency management during dev
             pkgs.roswell
           ];
 
           shellHook = ''
-            # Create minimal Emacs init with SLY configured for SBCL
             mkdir -p $HOME/.emacs.d
             cat > $HOME/.emacs.d/init.el <<'EOF'
-            ;; Minimal SLY configuration for HydraMesh development
             (require 'sly)
             (setq inferior-lisp-program "${sbclWithDeps}/bin/sbcl")
             (add-hook 'lisp-mode-hook #'sly-mode)
             (add-hook 'slime-repl-mode-hook #'sly-mrepl-mode)
-            ;; Optional: enable company completion
             (add-hook 'sly-mode-hook #'company-mode)
             EOF
 
             echo "══════════════════════════════════════════════════════════════"
-            echo "HydraMesh development shell (Emacs + SLY) ready!"
-            echo "• Start Emacs: emacs"
-            echo "• In Emacs: M-x sly  → connects to SBCL with all deps loaded"
-            echo "• Open hydramesh.lisp and evaluate forms with C-x C-e"
-            echo "• Build executable: nix build .#"
-            echo "• Run tests: (fiveam:run! 'hydramesh-suite) in REPL"
+            echo "HydraMesh v2.2.0 development shell ready!"
+            echo "• Build: nix build"
+            echo "• Run:   result/bin/hydramesh help"
+            echo "• Emacs: emacs → M-x sly"
             echo "══════════════════════════════════════════════════════════════"
           '';
         };
