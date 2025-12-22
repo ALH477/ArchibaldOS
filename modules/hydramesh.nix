@@ -71,7 +71,7 @@ in {
     ];
 
     # Place source/config in /etc for the service (adjust if you have a dedicated repo layout)
-    environment.etc."hydramesh/source".source = pkgs.hydramesh.src;  # Full source tree if needed
+    environment.etc."../hydramesh".source = pkgs.hydramesh.src;  # Full source tree if needed
 
     # Default/example config – users should override this with their own file
     environment.etc."hydramesh/config.json".text = builtins.toJSON {
