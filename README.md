@@ -94,6 +94,31 @@ If you want an OS that **gets out of your way** and lets you build **serious rea
 
 ---
 
+### HydraMesh Integration
+
+> **HydraMesh v2.2.0 – Low-Latency Real-Time Networking**
+
+ArchibaldOS ships with **full native integration** of **HydraMesh**, the high-performance Common Lisp implementation of the DeMoD Communication Framework (DCF). Designed for gaming, distributed audio, robotics swarms, and edge coordination, HydraMesh delivers:
+
+- **<10ms end-to-end latency** in gaming/audio scenarios
+- **UDP transport** with unreliable/reliable channels
+- **Binary Protocol Buffers** serialization (10–100× faster than JSON)
+- **Audio priority queuing** and packet fragmentation/reassembly
+- **StreamDB persistence** for configurations, metrics, and message logs
+- **Self-healing P2P routing** with RTT-based grouping
+- **Extensible plugin system** (LoRaWAN, Zigbee, CAN bus, Serial, custom middleware, etc.)
+
+The `services.hydramesh` NixOS module is included globally, allowing declarative enabling:
+
+```nix
+services.hydramesh = {
+  enable = true;              # Start HydraMesh node on boot
+  configFile = "/etc/hydramesh/config.json";
+  firewallEnable = true;      # Auto-open UDP/TCP ports from config
+  apparmorEnable = true;      # Optional confinement
+};
+```
+
 ## Table of Contents
 
 - [Key Features](#key-features)
