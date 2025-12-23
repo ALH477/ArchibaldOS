@@ -36,6 +36,7 @@
               paredit
               rainbow-delimiters
               which-key
+              ollama-buddy
             ];
           })
           epkgs.slime
@@ -43,6 +44,7 @@
           epkgs.paredit
           epkgs.rainbow-delimiters
           epkgs.which-key
+          epkgs.ollama-buddy
           # faust-mode is optional – the config gracefully handles its absence
         ]);
       };
