@@ -17,12 +17,13 @@ let
         local sink="$1"
         pactl get-sink-volume "$sink" 2>/dev/null \
             | grep -oP 'Volume:.*?/\s*\K[0-9]+%' | head -1 \
-            | tr -d '%' | awk '{printf "%.2f", $1/100}' || echo ""
+            | tr -d '%' || echo ""
     }
 
     set_sink_volume() {
-        local sink="$1"; local vol="$2"
-        pactl set-sink-volume "\( sink" "'' \){vol}%" 2>/dev/null || true
+        local sink="$1"
+        local vol="$2"
+        pactl set-sink-volume "$sink" "''${vol}%" 2>/dev/null || true
     }
 
     DEFAULT_SINK=$(get_default_sink)
@@ -30,9 +31,9 @@ let
 
     if [ -n "$DEFAULT_SINK" ]; then
         ORIGINAL_VOLUME=$(get_sink_volume "$DEFAULT_SINK")
-        if [ -n "\( ORIGINAL_VOLUME" ] && (( \)(echo "$ORIGINAL_VOLUME > 0.60" | bc -l) )); then
+        if [ -n "$ORIGINAL_VOLUME" ] && [ "$ORIGINAL_VOLUME" -gt 60 ]; then
             echo "Lowering volume to 45% for boot intro..." >&2
-            set_sink_volume "$DEFAULT_SINK" "0.45"
+            set_sink_volume "$DEFAULT_SINK" "45"
         fi
     fi
 
@@ -41,7 +42,7 @@ let
 
     # Restore volume
     if [ -n "$DEFAULT_SINK" ] && [ -n "$ORIGINAL_VOLUME" ]; then
-        echo "Restoring original volume (${ORIGINAL_VOLUME})..." >&2
+        echo "Restoring original volume ($ORIGINAL_VOLUME%)..." >&2
         set_sink_volume "$DEFAULT_SINK" "$ORIGINAL_VOLUME"
     fi
   '';
@@ -83,8 +84,8 @@ let
     # Configuration
     # ────────────────────────────────────────────────
     HOME = Path.home()
-    SF2_HIGHFI = HOME / "sf2/highfi.sf2"
-    SF2_LOFI   = HOME / "sf2/lofi.sf2"
+    SF2_HIGHFI = HOME / "sf2" / "highfi.sf2"
+    SF2_LOFI   = HOME / "sf2" / "lofi.sf2"
     MIDI_DIR   = HOME / "midi"
     FRAMES_DIR = HOME / "intro-frames"
 
@@ -131,6 +132,9 @@ let
                 return True
             return False
 
+        def stop_frame(self):
+            return self._stop_frame
+
         def process_event(self, event):
             return event
 
@@ -168,6 +172,12 @@ let
         def __init__(self, screen, **kwargs):
             super().__init__(screen, **kwargs)
 
+        def stop_frame(self):
+            return self._stop_frame
+
+        def _update(self, frame_no):
+            return False
+
         def _render(self, frame_no):
             for y in range(self._screen.height):
                 if y % 2 == 1:
@@ -181,6 +191,9 @@ let
     # ────────────────────────────────────────────────
     def load_frame_renderers():
         renderers = []
+        if not FRAMES_DIR.exists():
+            return renderers
+        
         i = 1
         while True:
             p = FRAMES_DIR / f"frame_{i:03d}.txt"
@@ -189,8 +202,8 @@ let
             try:
                 text = p.read_text(encoding="utf-8").rstrip('\n')
                 renderers.append(Box(StaticRenderer([text]), border=True, colour=Screen.COLOUR_GREEN))
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Failed to load frame {i}: {e}", file=sys.stderr)
             i += 1
         return renderers
 
@@ -305,7 +318,7 @@ let
         midi_files = glob.glob(str(MIDI_DIR / "intro_*.mid"))
         fs_proc = None
 
-        if midi_files:
+        if midi_files and SF2_HIGHFI.exists():
             selected = Path(random.choice(midi_files))
             print(f"Playing random motif: {selected.name}", file=sys.stderr)
 
@@ -316,10 +329,16 @@ let
                     "-o", f"synth.polyphony={POLYPHONY}",
                     "-o", f"audio.period-size={PERIOD_SIZE}",
                     str(SF2_HIGHFI),
-                    "-o", f"synth.bank-offset={BANK_OFFSET_LOFI}",
-                    str(SF2_LOFI),
-                    str(selected),
                 ]
+                
+                if SF2_LOFI.exists():
+                    cmd.extend([
+                        "-o", f"synth.bank-offset={BANK_OFFSET_LOFI}",
+                        str(SF2_LOFI),
+                    ])
+                
+                cmd.append(str(selected))
+                
                 fs_proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
@@ -361,6 +380,33 @@ let
                 sys.exit(0)
   '';
 
+  # ────────────────────────────────────────────────
+  # Lofi SoundFont Package
+  # ────────────────────────────────────────────────
+  lofiSoundFont = pkgs.stdenv.mkDerivation {
+    pname = "module89-soundfont";
+    version = "1.0";
+
+    src = pkgs.fetchurl {
+      url = "https://musical-artifacts.com/artifacts/1246/Module89.sf2";
+      sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      # Run 'nix-prefetch-url https://musical-artifacts.com/artifacts/1246/Module89.sf2'
+      # to get the correct hash, then replace above
+    };
+
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out/share/soundfonts
+      cp $src $out/share/soundfonts/Module89.sf2
+    '';
+
+    meta = with lib; {
+      description = "Module'89 - Lo-fi 80s synth soundfont";
+      homepage = "https://musical-artifacts.com/artifacts/1246";
+      license = licenses.publicDomain;
+    };
+  };
+
 in {
   # ────────────────────────────────────────────────
   # Runtime dependencies
@@ -373,7 +419,7 @@ in {
       asciimatics
     ]))
     pulseaudio  # for pactl in launcher (works with PipeWire)
-    bc          # for volume comparison in bash
+    introLauncher  # Make launcher available in PATH
   ];
 
   # ────────────────────────────────────────────────
@@ -381,21 +427,16 @@ in {
   # ────────────────────────────────────────────────
   environment.etc = {
     "skel/intro.py".source = introPythonScript;
-    "skel/intro-launcher".source = introLauncher;
 
     # High-fidelity SoundFont (default)
     "skel/sf2/highfi.sf2".source = "${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM2-2.sf2";
 
-    # Lo-fi / retro SoundFont example (replace with real one)
-    # "skel/sf2/lofi.sf2".source = pkgs.fetchurl {
-    #   url = "https://musical-artifacts.com/.../module89.sf2";
-    #   sha256 = "sha256-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=";
-    # };
+    # Lo-fi / retro SoundFont - Module'89 (80s synth aesthetic)
+    "skel/sf2/lofi.sf2".source = "${lofiSoundFont}/share/soundfonts/Module89.sf2";
 
     # Example MIDI files (add your own MuseScore exports)
-    "skel/midi/intro_01.mid".source = ./assets/midi/intro_01.mid;  # ← your files here
-    "skel/midi/intro_02.mid".source = ./assets/midi/intro_02.mid;
-    # ...
+    # "skel/midi/intro_01.mid".source = ./assets/midi/intro_01.mid;
+    # "skel/midi/intro_02.mid".source = ./assets/midi/intro_02.mid;
 
     # Optional: example ASCII frame (fallback)
     "skel/intro-frames/frame_001.txt".text = ''
@@ -411,7 +452,6 @@ in {
   # ────────────────────────────────────────────────
   system.activationScripts.archibaldosIntro = lib.stringAfter [ "users" "writeBoundary" ] ''
     chmod +x /etc/skel/intro.py
-    chmod +x /etc/skel/intro-launcher
 
     mkdir -p /etc/skel/sf2 /etc/skel/midi /etc/skel/intro-frames
     chmod 755 /etc/skel/sf2 /etc/skel/midi /etc/skel/intro-frames
@@ -424,7 +464,7 @@ in {
     [Desktop Entry]
     Type=Application
     Name=ArchibaldOS Boot Intro
-    Exec=/home/nixos/intro-launcher
+    Exec=${introLauncher}/bin/archibaldos-intro-launcher
     Hidden=false
     NoDisplay=false
     X-GNOME-Autostart-enabled=true
