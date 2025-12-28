@@ -1,8 +1,0 @@
-{
-  "transport": "native-lisp",
-  "host": "localhost",
-  "port": 5555,
-  "mode": "server",
-  "storage": "streamdb",
-  "streamdb-path": "/var/lib/hydramesh/streamdb"
-}
