@@ -1,184 +1,212 @@
-# nixos-module.nix (or HydraMesh/nixos-module.nix)
-# Copyright 2025 DeMoD LLC
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# Redistribution and use in source and binary forms, with or without modification,
-# are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice,
-#    this list of conditions and the following disclaimer.
-#
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-#
-# 3. Neither the name of the copyright holder nor the names of its contributors
-#    may be used to endorse or promote products derived from this software
-#    without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS”
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-# GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
-# OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright (c) 2025 DeMoD LLC. All rights reserved.
+# HydraMesh NixOS Module - P2P networking as a containerized service
+{ config, lib, pkgs, ... }:
 
-{ config, pkgs, lib, ... }:
+with lib;
 
 let
   cfg = config.services.hydramesh;
 
-  # Simple wrapper that runs the standalone HydraMesh executable directly
-  # No Quicklisp loading needed because all dependencies are baked into the core by dcf-deploy
-  hydrameshWrapped = pkgs.writeShellScriptBin "hydramesh-wrapped" ''
-    exec ${pkgs.hydramesh}/bin/hydramesh "$@"
-  '';
+  configFile = pkgs.writeText "hydramesh-config.json" (builtins.toJSON (
+    {
+      transport = cfg.transport;
+      host = cfg.host;
+      port = cfg.grpcPort;
+      udp-port = cfg.udpPort;
+      mode = cfg.mode;
+      node-id = cfg.nodeId;
+      peers = cfg.peers;
+      optimization-level = cfg.optimizationLevel;
+    }
+    // optionalAttrs (cfg.rttThreshold != null) {
+      group-rtt-threshold = cfg.rttThreshold;
+    }
+    // optionalAttrs (cfg.retryMax != null) {
+      retry-max = cfg.retryMax;
+    }
+    // optionalAttrs (cfg.udpMtu != null) {
+      udp-mtu = cfg.udpMtu;
+    }
+  ));
 
 in {
   options.services.hydramesh = {
-    enable = lib.mkEnableOption "HydraMesh DCF node service";
+    enable = mkEnableOption "HydraMesh P2P networking service";
 
-    configFile = lib.mkOption {
-      type = lib.types.path;
-      default = "/etc/hydramesh/config.json";
-      description = "Path to the HydraMesh configuration file (config.json).";
+    image = mkOption {
+      type = types.str;
+      default = "alh477/hydramesh:latest";
+      description = "Docker image for HydraMesh";
+      example = "alh477/hydramesh:2.2.0";
     };
 
-    extraArgs = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
+    nodeId = mkOption {
+      type = types.str;
+      default = config.networking.hostName;
+      description = "Unique node identifier";
+    };
+
+    mode = mkOption {
+      type = types.enum [ "p2p" "client" "server" ];
+      default = "p2p";
+      description = "Network mode";
+    };
+
+    transport = mkOption {
+      type = types.enum [ "UDP" "TCP" ];
+      default = "UDP";
+      description = "Primary transport protocol";
+    };
+
+    host = mkOption {
+      type = types.str;
+      default = "0.0.0.0";
+      description = "Bind address";
+    };
+
+    udpPort = mkOption {
+      type = types.port;
+      default = 7777;
+      description = "UDP transport port for game/audio data";
+    };
+
+    grpcPort = mkOption {
+      type = types.port;
+      default = 50051;
+      description = "gRPC API port";
+    };
+
+    peers = mkOption {
+      type = types.listOf types.str;
       default = [];
-      description = "Additional command-line arguments passed to HydraMesh.";
+      example = [ "192.168.1.100:7777" "192.168.1.101:7777" ];
+      description = "List of peer addresses";
     };
 
-    firewallEnable = lib.mkEnableOption "Automatically open firewall ports based on config.json";
+    optimizationLevel = mkOption {
+      type = types.ints.between 0 3;
+      default = 2;
+      description = "Optimization level (0-3)";
+    };
 
-    apparmorEnable = lib.mkEnableOption "Enable custom AppArmor profile for confinement";
+    rttThreshold = mkOption {
+      type = types.nullOr types.int;
+      default = null;
+      description = "Group RTT threshold in milliseconds";
+    };
+
+    retryMax = mkOption {
+      type = types.nullOr types.int;
+      default = null;
+      description = "Maximum retry attempts";
+    };
+
+    udpMtu = mkOption {
+      type = types.nullOr types.int;
+      default = null;
+      description = "UDP MTU size";
+    };
+
+    logLevel = mkOption {
+      type = types.enum [ "debug" "info" "warn" "error" ];
+      default = "info";
+      description = "Log verbosity";
+    };
+
+    memoryLimit = mkOption {
+      type = types.str;
+      default = "256m";
+      description = "Memory limit for HydraMesh container";
+    };
+
+    cpuLimit = mkOption {
+      type = types.str;
+      default = "0.8";
+      description = "CPU limit for HydraMesh container (0.8 = 80%)";
+    };
+
+    hardened = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Run with hardened security options";
+    };
   };
 
-  config = lib.mkIf cfg.enable {
-    # System-wide packages
-    environment.systemPackages = [
-      pkgs.hydramesh
-      hydrameshWrapped
-      pkgs.sbcl  # Optional: for debugging or manual runs
+  config = mkIf cfg.enable {
+    virtualisation.docker.enable = true;
+
+    environment.etc."hydramesh/config.json".source = configFile;
+
+    systemd.tmpfiles.rules = [
+      "d /var/lib/hydramesh 0755 root root -"
+      "d /var/log/hydramesh 0755 root root -"
     ];
 
-    # Default/example configuration (users should override)
-    environment.etc."hydramesh/config.json".text = builtins.toJSON {
-      "$schema" = "http://json-schema.org/draft-07/schema#";
-      type = "object";
-      properties = {
-        transport = { type = "string"; enum = [ "UDP" "gRPC" "native-lisp" "WebSocket" ]; default = "UDP"; };
-        host = { type = "string"; default = "0.0.0.0"; };
-        port = { type = "integer"; minimum = 0; maximum = 65535; default = 50051; };
-        "udp-port" = { type = "integer"; minimum = 0; maximum = 65535; default = 7777; };
-        mode = { type = "string"; enum = [ "client" "server" "p2p" "auto" "master" ]; default = "p2p"; };
-        "node-id" = { type = "string"; };
-        peers = { type = "array"; items = { type = "string"; }; default = []; };
-        "group-rtt-threshold" = { type = "integer"; minimum = 0; maximum = 1000; default = 50; };
-        storage = { type = "string"; enum = [ "streamdb" "in-memory" ]; default = "streamdb"; };
-        "streamdb-path" = { type = "string"; default = "/var/lib/hydramesh/streamdb.db"; };
-        "optimization-level" = { type = "integer"; minimum = 0; maximum = 3; default = 2; };
-        "retry-max" = { type = "integer"; minimum = 1; maximum = 10; default = 3; };
-        "udp-mtu" = { type = "integer"; default = 1400; };
-        "udp-reliable-timeout" = { type = "integer"; default = 500; };
-        "audio-priority" = { type = "boolean"; default = true; };
+    virtualisation.oci-containers.backend = "docker";
+
+    virtualisation.oci-containers.containers.hydramesh = {
+      image = cfg.image;
+      autoStart = true;
+
+      environment = {
+        HYDRAMESH_CONFIG = "/etc/hydramesh/config.json";
+      } // optionalAttrs (cfg.peers != []) {
+        PEERS = concatStringsSep "," cfg.peers;
       };
-      required = [ "transport" "host" "mode" ];
-      additionalProperties = true;
+
+      volumes = [
+        "/etc/hydramesh/config.json:/etc/hydramesh/config.json:ro"
+        "/var/lib/hydramesh:/data"
+      ];
+
+      ports = [
+        "${toString cfg.udpPort}:7777/udp"
+        "${toString cfg.grpcPort}:50051/tcp"
+      ];
+
+      extraOptions = [
+        "--memory=${cfg.memoryLimit}"
+        "--cpus=${cfg.cpuLimit}"
+      ] 
+      ++ optionals cfg.hardened [
+        "--read-only"
+        "--security-opt=no-new-privileges:true"
+        "--cap-drop=ALL"
+        "--cap-add=NET_BIND_SERVICE"
+      ];
     };
 
-    # Systemd service
-    systemd.services.hydramesh = {
-      description = "HydraMesh v2.2.0 – High-performance Common Lisp DCF Node";
-      after = [ "network.target" ];
-      wantedBy = [ "multi-user.target" ];
-      restartIfChanged = true;
-
-      serviceConfig = {
-        ExecStart = "${hydrameshWrapped}/bin/hydramesh-wrapped init ${cfg.configFile} ${lib.escapeShellArgs cfg.extraArgs}";
-        Restart = "always";
-        DynamicUser = true;
-        User = "hydramesh";
-        Group = "hydramesh";
-        WorkingDirectory = "/var/lib/hydramesh";
-        StateDirectory = "hydramesh";
-        StateDirectoryMode = "0700";
-
-        # Security hardening
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        NoNewPrivileges = true;
-        RestrictSUIDSGID = true;
-        RemoveIPC = true;
-        RestrictNamespaces = true;
-        CapabilityBoundingSet = "~CAP_SYS_ADMIN ~CAP_SYS_BOOT ~CAP_SYS_MODULE ~CAP_SYS_RAWIO";
-        SystemCallArchitectures = "native";
-        SystemCallFilter = "@system-service ~@privileged @resources";
-
-        # StreamDB shared library path
-        Environment = "LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [ pkgs.streamdb ]}";
-      };
+    networking.firewall = mkIf config.networking.firewall.enable {
+      allowedTCPPorts = [ cfg.grpcPort ];
+      allowedUDPPorts = [ cfg.udpPort ];
     };
 
-    # Dynamic firewall rules from config.json
-    networking.firewall = lib.mkIf cfg.firewallEnable {
-      allowedTCPPorts = let
-        c = builtins.fromJSON (builtins.readFile cfg.configFile);
-      in [ c.port ] ++ lib.optional (c ? "udp-port") c."udp-port";
-
-      allowedUDPPorts = let
-        c = builtins.fromJSON (builtins.readFile cfg.configFile);
-      in [ c.port ] ++ lib.optional (c ? "udp-port") c."udp-port";
-    };
-
-    # Optional AppArmor profile
-    security.apparmor.profiles = lib.mkIf cfg.apparmorEnable [
-      (pkgs.writeText "apparmor-hydramesh" ''
-        #include <tunables/global>
-
-        ${hydrameshWrapped}/bin/hydramesh-wrapped {
-          #include <abstractions/base>
-          #include <abstractions/nameservice>
-
-          capability dac_override,
-          capability net_bind_service,
-          capability net_raw,
-
-          network inet stream,
-          network inet dgram,
-          network inet6 stream,
-          network inet6 dgram,
-
-          /etc/hydramesh/** r,
-          /var/lib/hydramesh/** rwk,
-
-          ${pkgs.streamdb}/lib/libstreamdb.so r,
-
-          /usr/bin/sbcl ix,
-          /run/current-system/sw/bin/** ix,
-        }
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "hydramesh-logs" ''
+        docker logs -f hydramesh "$@"
+      '')
+      (pkgs.writeShellScriptBin "hydramesh-status" ''
+        echo "=== HydraMesh Status ==="
+        docker run --rm ${cfg.image} status 2>/dev/null || \
+          docker ps --filter name=hydramesh --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        echo ""
+        echo "=== Container Info ==="
+        docker inspect hydramesh --format '{{.State.Status}} - Up {{.State.StartedAt}}' 2>/dev/null || echo "Not running"
+        echo ""
+        echo "=== Recent Logs ==="
+        docker logs --tail 20 hydramesh 2>/dev/null || echo "No logs available"
+      '')
+      (pkgs.writeShellScriptBin "hydramesh-version" ''
+        docker run --rm ${cfg.image} version
+      '')
+      (pkgs.writeShellScriptBin "hydramesh-restart" ''
+        systemctl restart docker-hydramesh
+      '')
+      (pkgs.writeShellScriptBin "hydramesh-pull" ''
+        docker pull ${cfg.image}
+        systemctl restart docker-hydramesh
       '')
     ];
-
-    # System user and group
-    users.users.hydramesh = {
-      isSystemUser = true;
-      group = "hydramesh";
-      home = "/var/lib/hydramesh";
-      createHome = true;
-      description = "HydraMesh DCF node system user";
-    };
-
-    users.groups.hydramesh = {};
   };
 }
