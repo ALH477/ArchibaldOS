@@ -1,4 +1,4 @@
-# ArchibaldOS Community Edition
+# ArchibaldOS Community Edition (v.1.2-Omega-Alpha-Chad-Syndrome-Maestro)
 
 Real-time workstation for audio production and robotics + HydraMesh P2P networking.
 
