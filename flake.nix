@@ -6,7 +6,7 @@
 # Real-time audio workstation + HydraMesh P2P networking for NixOS
 #
 # For commercial features (Thunderbolt/USB4, ARM support, auto-updates,
-# enterprise configurations), see: https://github.com/ALH477/archibaldos-pro
+# enterprise configurations), see: https://demod.ltd
 # ============================================================================
 {
   description = "ArchibaldOS Community Edition - Real-time audio workstation + HydraMesh";
