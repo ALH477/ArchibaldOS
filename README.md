@@ -11,29 +11,44 @@ BSD-3-Clause. See [LICENSE](LICENSE).
 ## Quick Start
 
 ```bash
-# Build Audio Workstation ISO
+# Build Audio Workstation ISO (CachyOS RT BORE)
 nix build github:ALH477/ArchibaldOS#iso
 
-# Build Robotics Workstation ISO
+# Build Robotics Workstation ISO (CachyOS RT BORE)
 nix build github:ALH477/ArchibaldOS#robotics-iso
 
 # Build HydraMesh Networking ISO
 nix build github:ALH477/ArchibaldOS#hydramesh-iso
+
+# Fallback: musnix PREEMPT_RT kernel variants
+nix build github:ALH477/ArchibaldOS#iso-musnix
+nix build github:ALH477/ArchibaldOS#robotics-iso-musnix
 ```
+
+## Kernel Options
+
+| Kernel | Scheduler | Use Case |
+|--------|-----------|----------|
+| **CachyOS RT** (default) | BORE | Best latency + responsiveness |
+| **musnix PREEMPT_RT** (fallback) | CFS | Mainline RT, max compatibility |
+
+Both kernels use the same RT parameters:
+- `threadirqs` - Threaded IRQ handlers
+- `isolcpus=1-3` - Isolated CPU cores
+- `nohz_full=1-3` - Full tickless
+- `intel_idle.max_cstate=1` - Disable deep C-states
 
 ## Profiles
 
 | Profile | ISO | Description |
 |---------|-----|-------------|
 | **Audio** | `iso` | RT audio production with DAWs, synths, DSP tools |
-| **Robotics** | `robotics-iso` | RT control systems, ROS, simulation, hardware I/O |
+| **Robotics** | `robotics-iso` | RT control systems, simulation, hardware I/O |
 | **HydraMesh** | `hydramesh-iso` | Headless P2P networking node |
-
-All profiles use the same **musnix RT kernel** for deterministic timing.
 
 ## Audio Profile
 
-- **RT Kernel**: musnix PREEMPT_RT
+- **Kernel**: CachyOS RT with BORE scheduler
 - **Latency**: 32 samples @ 96kHz (~0.33ms)
 - **DAWs**: Ardour, Audacity, Zrythm, Reaper
 - **Synths**: Surge, Helm, Carla
@@ -60,14 +75,6 @@ Preconfigured udev rules for:
 - Teensy
 - Generic USB serial
 
-### Groups
-
-Robotics user automatically added to:
-- `dialout` - Serial ports
-- `plugdev` - USB devices  
-- `gpio`, `i2c`, `spi` - Hardware buses
-- `input` - Input devices
-
 ## HydraMesh P2P
 
 Sub-10ms latency networking:
@@ -80,16 +87,12 @@ services.hydramesh = {
 };
 ```
 
-### CLI Tools
-- `hydramesh-status` - Container status
-- `hydramesh-logs` - Follow logs
-- `hydramesh-pull` - Update image
-
 ## Community vs Pro
 
 | Feature | Community | Pro |
 |---------|-----------|-----|
-| RT Kernel (musnix) | ✅ | ✅ |
+| CachyOS RT BORE kernel | ✅ | ✅ |
+| musnix PREEMPT_RT fallback | ✅ | ✅ |
 | Audio Profile | ✅ | ✅ |
 | Robotics Profile | ✅ | ✅ |
 | HydraMesh P2P | ✅ | ✅ |
@@ -115,7 +118,9 @@ nix develop github:ALH477/ArchibaldOS#robotics
 
 ## Credits
 
+- [CachyOS](https://cachyos.org) - BORE scheduler and optimized kernels
 - [musnix](https://github.com/musnix/musnix) - Real-time audio NixOS module
+- [chaotic-nyx](https://github.com/chaotic-cx/nyx) - CachyOS packages for NixOS
 - [NixOS](https://nixos.org) - The reproducible Linux distribution
 
 ---
