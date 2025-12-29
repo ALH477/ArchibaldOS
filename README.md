@@ -1,5 +1,7 @@
 # ArchibaldOS Community Edition (v.1.2-Omega-Alpha-Chad-Syndrome-Maestro)
 
+Old codebase is in a zip file in the release section. I updated the repo to be easier to maintain and learn.
+
 Real-time workstation for audio production and robotics + HydraMesh P2P networking.
 
 What sets it apart? **Bit-for-bit reproducibility** across deployments, ensuring that your setup on a studio workstation matches exactly on a drone brain or secure edge router—eliminating the *"it works on my machine"* syndrome that plagues traditional OSes. Trust us, once you experience deployment consistency at this level, you'll wonder how you ever managed without it.
