@@ -13,32 +13,31 @@
   # XDG portal for Wayland
   xdg.portal = {
     enable = true;
-    extraPortals = [ pkgs.xdg-desktop-portal-kde ];
+    extraPortals = [ pkgs.kdePackages.xdg-desktop-portal-kde ];
   };
 
   # Fonts
   fonts.packages = with pkgs; [
     noto-fonts
     noto-fonts-cjk-sans
-    noto-fonts-emoji
+    noto-fonts-color-emoji
     liberation_ttf
     fira-code
   ];
 
-  # Desktop packages
+  # Desktop packages + the RT check script
   environment.systemPackages = with pkgs; [
     firefox
-    konsole
-    dolphin
-    kate
-    spectacle
-    ark
-    okular
-    gwenview
-  ];
+    # KDE apps live under kdePackages.* since the Plasma 6 reorganization.
+    kdePackages.konsole
+    kdePackages.dolphin
+    kdePackages.kate
+    kdePackages.spectacle
+    kdePackages.ark
+    kdePackages.okular
+    kdePackages.gwenview
 
-  # RT check script
-  environment.systemPackages = with pkgs; [
+    # RT check script
     (writeShellScriptBin "rt-check" ''
       #!/usr/bin/env bash
       echo "=== ArchibaldOS RT Check ==="

@@ -12,15 +12,15 @@
   description = "ArchibaldOS Community Edition - Real-time audio workstation + HydraMesh";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    # nixos-unstable to match the chaotic (nyxpkgs-unstable) overlay, which
+    # tracks unstable — a 24.11 base drifts out of sync with chaotic's CachyOS
+    # kernel (missing zfs/kernel attrs). Same tree serves the riscv64 image.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     musnix.url = "github:musnix/musnix";
     chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
     # RISC-V (StarFive JH7110) hardware baseline.
     nixos-hardware.url = "github:NixOS/nixos-hardware";
-    # The riscv64 image is built from nixpkgs-unstable: riscv64 GHC/toolchain
-    # support (needed transitively by the base system) is not viable on the
-    # 24.11 x86 pin. The x86 configs above stay on 24.11.
-    nixpkgs-riscv.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-riscv.follows = "nixpkgs";
   };
 
   outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv }:
@@ -34,10 +34,12 @@
     # Shared flake URI for updates
     flakeUri = "github:ALH477/ArchibaldOS";
 
-    # CachyOS RT BORE kernel configuration (primary)
+    # CachyOS BORE kernel configuration (primary)
     cachyosRtConfig = { config, pkgs, lib, ... }: {
-      # Use CachyOS RT kernel with BORE scheduler
-      boot.kernelPackages = pkgs.linuxPackages_cachyos-rt;
+      # CachyOS kernel: BORE scheduler + full preemption (via preempt=full
+      # below). Chaotic dropped the separate -rt package; the main cachyos
+      # kernel is the low-latency baseline.
+      boot.kernelPackages = pkgs.linuxPackages_cachyos;
 
       # RT kernel params
       boot.kernelParams = [
@@ -85,6 +87,16 @@
       nix.settings.experimental-features = [ "nix-command" "flakes" ];
       networking.networkmanager.enable = true;
       networking.firewall.enable = true;
+
+      # The CachyOS kernel tracks mainline very closely; OpenZFS lags the newest
+      # kernels and refuses to evaluate against them. ZFS is not needed on an RT
+      # audio workstation, so keep it off (the graphical installer enables it by
+      # default otherwise).
+      boot.supportedFilesystems.zfs = lib.mkForce false;
+
+      # Some bundled tools (e.g. reaper) are unfree. The module-system pkgs
+      # needs this even though the flake's top-level pkgs already sets it.
+      nixpkgs.config.allowUnfree = true;
     };
 
   in {
@@ -153,7 +165,7 @@
             # Graphics
             hardware.graphics.enable = true;
             hardware.graphics.extraPackages = with pkgs; [
-              mesa vaapiIntel vaapiVdpau libvdpau-va-gl
+              intel-media-driver intel-vaapi-driver libvdpau-va-gl
             ];
 
             # Branding
@@ -221,9 +233,9 @@
               # ros2-humble
               
               # Robotics frameworks
-              gazebo
-              # openrave
-              
+              # (Gazebo Classic was removed from nixpkgs; add gz-sim from an
+              #  overlay if you need a simulator.)
+
               # Control & Simulation
               octave
               python3Packages.numpy
@@ -231,7 +243,6 @@
               python3Packages.matplotlib
               python3Packages.sympy
               python3Packages.control
-              python3Packages.roboticstoolbox-python or null
               
               # Serial & Hardware
               minicom
@@ -281,7 +292,7 @@
             # Graphics for simulation
             hardware.graphics.enable = true;
             hardware.graphics.extraPackages = with pkgs; [
-              mesa vaapiIntel vaapiVdpau libvdpau-va-gl
+              intel-media-driver intel-vaapi-driver libvdpau-va-gl
             ];
 
             # Branding
@@ -451,7 +462,7 @@
 
             hardware.graphics.enable = true;
             hardware.graphics.extraPackages = with pkgs; [
-              mesa vaapiIntel vaapiVdpau libvdpau-va-gl
+              intel-media-driver intel-vaapi-driver libvdpau-va-gl
             ];
 
             branding.enable = true;
@@ -495,7 +506,7 @@
 
             environment.systemPackages = with pkgs; [
               usbutils libusb1 dialog mkpasswd
-              gazebo octave
+              octave
               python3Packages.numpy python3Packages.scipy
               python3Packages.matplotlib python3Packages.sympy
               python3Packages.pyserial
@@ -509,7 +520,7 @@
 
             hardware.graphics.enable = true;
             hardware.graphics.extraPackages = with pkgs; [
-              mesa vaapiIntel vaapiVdpau libvdpau-va-gl
+              intel-media-driver intel-vaapi-driver libvdpau-va-gl
             ];
 
             branding.enable = true;
