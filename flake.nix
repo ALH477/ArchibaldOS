@@ -15,9 +15,15 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     musnix.url = "github:musnix/musnix";
     chaotic.url = "github:chaotic-cx/nyx/nyxpkgs-unstable";
+    # RISC-V (StarFive JH7110) hardware baseline.
+    nixos-hardware.url = "github:NixOS/nixos-hardware";
+    # The riscv64 image is built from nixpkgs-unstable: riscv64 GHC/toolchain
+    # support (needed transitively by the base system) is not viable on the
+    # 24.11 x86 pin. The x86 configs above stay on 24.11.
+    nixpkgs-riscv.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, nixpkgs, musnix, chaotic }:
+  outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv }:
   let
     system = "x86_64-linux";
     pkgs = import nixpkgs {
@@ -549,11 +555,68 @@
         ];
       };
 
+      # ======================================================================
+      # ARCHIBALDOS-RISCV - RT Audio SD image for StarFive JH7110 boards
+      # (VisionFive 2 / DeepComputing Framework 13 RV). riscv64-linux.
+      # Kernel: mainline Linux 6.12 with native PREEMPT_RT (CachyOS RT does
+      # not build for riscv64). Build natively on the board, or cross from
+      # x86_64 under binfmt qemu-user. See docs/riscv.md.
+      # ======================================================================
+      archibaldOS-riscv = nixpkgs-riscv.lib.nixosSystem {
+        system = "riscv64-linux";
+        specialArgs = { inherit musnix flakeUri; };
+        modules = [
+          "${nixpkgs-riscv}/nixos/modules/installer/sd-card/sd-image.nix"
+          nixos-hardware.nixosModules.starfive-visionfive-2
+          ./modules/rt-audio-riscv.nix
+          ./modules/riscv-cross-overlay.nix
+          ./hardware/jh7110.nix
+          ({ config, pkgs, lib, ... }: {
+            system.stateVersion = "24.11";
+            nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+            networking.hostName = "archibaldos-rv";
+            # Headless appliance: plain systemd-networkd DHCP, not NetworkManager
+            # (NM drags in Haskell-dependent VPN plugins that cannot bootstrap
+            # GHC on riscv64). Configure wireless per-machine if needed.
+            networking.useNetworkd = true;
+            networking.useDHCP = lib.mkDefault true;
+            networking.firewall.enable = true;
+
+            # Lean RT-audio userland — only what builds cleanly for riscv64.
+            environment.systemPackages = with pkgs; [
+              alsa-utils alsa-lib
+              jack2 jack-example-tools
+              vim git htop usbutils i2c-tools
+            ];
+
+            # Console user (change the password on first boot).
+            users.users.audio = {
+              isNormalUser = true;
+              extraGroups = [ "wheel" "audio" "dialout" "i2c" "plugdev" ];
+              initialPassword = "archibald";
+            };
+            users.groups.i2c = {};
+            users.groups.plugdev = {};
+
+            services.getty.autologinUser = lib.mkForce "audio";
+          })
+        ];
+      };
+
     };
 
     # ========================================================================
     # BUILD OUTPUTS
     # ========================================================================
+
+    # RISC-V SD image — exposed under riscv64-linux (native board build) and
+    # x86_64-linux (binfmt qemu-user cross build). See docs/riscv.md.
+    packages.riscv64-linux = {
+      default = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
+      archibaldOS-riscv-sdimage = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
+    };
+
     packages.${system} = {
       # CachyOS RT BORE (primary)
       default = self.nixosConfigurations.archibaldOS-iso.config.system.build.isoImage;
@@ -564,6 +627,12 @@
       # musnix PREEMPT_RT (fallback)
       iso-musnix = self.nixosConfigurations.archibaldOS-musnix.config.system.build.isoImage;
       robotics-iso-musnix = self.nixosConfigurations.archibaldOS-robotics-musnix.config.system.build.isoImage;
+
+      # RISC-V SD image, cross-built from x86_64 under binfmt qemu-user.
+      # Requires `boot.binfmt.emulatedSystems = [ "riscv64-linux" ];` on the
+      # build host (or a native riscv64 builder). Slow — prefer a native
+      # on-board build; see docs/riscv.md.
+      archibaldOS-riscv-sdimage = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
     };
 
     # ========================================================================

@@ -101,7 +101,19 @@ nix build github:ALH477/ArchibaldOS#hydramesh-iso
 # Fallback: musnix PREEMPT_RT kernel variants
 nix build github:ALH477/ArchibaldOS#iso-musnix
 nix build github:ALH477/ArchibaldOS#robotics-iso-musnix
+
+# RISC-V SD image for StarFive JH7110 boards (VisionFive 2 / Framework 13 RV)
+# Build natively on the board (preferred):
+nix build github:ALH477/ArchibaldOS#packages.riscv64-linux.archibaldOS-riscv-sdimage
+# ...or cross-build from x86_64 under binfmt qemu-user (slow) — see docs/riscv.md
 ```
+
+## RISC-V (StarFive JH7110)
+
+A headless RT-audio SD image for the **VisionFive 2** and **DeepComputing
+Framework 13 RISC-V** mainboard (StarFive JH7110). Mainline Linux 6.12 with
+native `PREEMPT_RT` (CachyOS RT doesn't build for riscv64). Build it on the
+board or cross-build from x86_64 — full guide in **[docs/riscv.md](docs/riscv.md)**.
 
 ## Kernel Options
 
