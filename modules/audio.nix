@@ -5,7 +5,7 @@
 
 {
   # Disable PulseAudio in favor of PipeWire
-  hardware.pulseaudio.enable = false;
+  services.pulseaudio.enable = false;
 
   # PipeWire with pro-level low latency (32 samples @ 96kHz)
   security.rtkit.enable = true;

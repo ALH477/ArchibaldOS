@@ -7,6 +7,13 @@
 #
 # For commercial features (Thunderbolt/USB4, ARM support, auto-updates,
 # enterprise configurations), see: https://demod.ltd
+#
+# DSP Coprocessor VM: The `dsp-vm` configuration + `dsp-vm-qcow2` package
+# build a headless RT guest image designed for use with the Oligarchy NixOS
+# host (https://github.com/ALH477/Oligarchy). The host's `vm-manager/dsp-vm.nix`
+# module boots this qcow2 with CPU isolation + NETJACK audio routing.
+#
+# Organization: https://github.com/ALH477
 # ============================================================================
 {
   description = "ArchibaldOS Community Edition - Real-time audio workstation + HydraMesh";
@@ -21,9 +28,12 @@
     # RISC-V (StarFive JH7110) hardware baseline.
     nixos-hardware.url = "github:NixOS/nixos-hardware";
     nixpkgs-riscv.follows = "nixpkgs";
+    # For building qcow2 VM images (DSP coprocessor guest)
+    nixos-generators.url = "github:nix-community/nixos-generators";
+    nixos-generators.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv }:
+  outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv, nixos-generators }:
   let
     system = "x86_64-linux";
     pkgs = import nixpkgs {
@@ -33,6 +43,35 @@
 
     # Shared flake URI for updates
     flakeUri = "github:ALH477/ArchibaldOS";
+
+    # DSP VM guest modules — shared between nixosConfiguration and qcow2
+    # image build so they stay in sync.
+    # Uses musnix PREEMPT_RT kernel (not CachyOS) for maximum determinism.
+    dspVmModules = [
+      musnix.nixosModules.musnix
+      ./modules/headless-dsp.nix
+      ({ config, pkgs, lib, ... }: {
+        system.stateVersion = "24.11";
+        boot.supportedFilesystems.zfs = lib.mkForce false;
+        nixpkgs.config.allowUnfree = true;
+
+        networking.hostName = "archibaldos-dsp";
+        networking.useDHCP = true;
+        networking.networkmanager.enable = lib.mkForce false;
+
+        # Root filesystem on virtio disk (for qcow2 VM image)
+        fileSystems."/" = {
+          device = "/dev/disk/by-label/nixos";
+          fsType = "ext4";
+        };
+
+        # GRUB bootloader on virtio disk
+        boot.loader.grub.enable = true;
+        boot.loader.grub.device = "/dev/vda";
+        boot.loader.grub.efiSupport = false;
+        boot.loader.timeout = 1;  # Fast boot — no menu delay
+      })
+    ];
 
     # CachyOS BORE kernel configuration (primary)
     cachyosRtConfig = { config, pkgs, lib, ... }: {
@@ -567,6 +606,18 @@
       };
 
       # ======================================================================
+      # ARCHIBALDOS DSP-VM — Headless DSP Coprocessor (qcow2 VM image)
+      # For use as a QEMU/KVM guest on the Oligarchy host. Provides JACK2
+      # with NETJACK netone driver for audio routing over the VM network.
+      # Kernel: CachyOS BORE + preempt=full
+      # ======================================================================
+      dsp-vm = nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit musnix; };
+        modules = dspVmModules;
+      };
+
+      # ======================================================================
       # ARCHIBALDOS-RISCV - RT Audio SD image for StarFive JH7110 boards
       # (VisionFive 2 / DeepComputing Framework 13 RV). riscv64-linux.
       # Kernel: mainline Linux 6.12 with native PREEMPT_RT (CachyOS RT does
@@ -644,6 +695,24 @@
       # build host (or a native riscv64 builder). Slow — prefer a native
       # on-board build; see docs/riscv.md.
       archibaldOS-riscv-sdimage = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
+
+      # DSP coprocessor VM image (qcow2) — for QEMU/KVM on Oligarchy host.
+      # Build: nix build .#dsp-vm-qcow2
+      # Place: cp result/*.qcow2 ~/vms/archibaldos-dsp.qcow2
+      dsp-vm-qcow2 = (nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit musnix; };
+        modules = dspVmModules ++ [
+          ({ config, pkgs, lib, ... }: {
+            # Build a qcow2 disk image using nixpkgs' make-disk-image
+            system.build.qcow2 = pkgs.callPackage "${nixpkgs}/nixos/lib/make-disk-image.nix" {
+              inherit config lib pkgs;
+              diskSize = 4096;       # 4GB — enough for DSP guest
+              format = "qcow2";
+            };
+          })
+        ];
+      }).config.system.build.qcow2;
     };
 
     # ========================================================================
