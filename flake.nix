@@ -79,6 +79,9 @@
         boot.loader.grub.device = "/dev/vda";
         boot.loader.grub.efiSupport = false;
         boot.loader.timeout = 1;  # Fast boot — no menu delay
+        
+        # Serial console output for VM debugging
+        boot.kernelParams = [ "console=ttyS0" ];
       })
     ];
 
