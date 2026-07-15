@@ -739,7 +739,7 @@
             # Build a qcow2 disk image using nixpkgs' make-disk-image
             system.build.qcow2 = pkgs.callPackage "${nixpkgs}/nixos/lib/make-disk-image.nix" {
               inherit config lib pkgs;
-              diskSize = 4096;       # 4GB — enough for DSP guest
+              diskSize = 8192;       # 8GB — NixOS + JACK2 + PipeWire + musnix RT stack
               format = "qcow2";
             };
           })
