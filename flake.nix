@@ -31,9 +31,18 @@
     # For building qcow2 VM images (DSP coprocessor guest)
     nixos-generators.url = "github:nix-community/nixos-generators";
     nixos-generators.inputs.nixpkgs.follows = "nixpkgs";
+
+    # DeMoD RT engine (proprietary — PolyForm Shield 1.0.0).
+    # NOT included by default. To build the dsp-vm-demod config:
+    #   1. Ensure ~/demod-work exists (git clone the private repo)
+    #   2. Uncomment the input below
+    #   3. Uncomment the dsp-vm-demod nixosConfiguration + package
+    #   4. nix build .#dsp-vm-demod-qcow2
+    # demod.url = "path:/home/asher/demod-work";
   };
 
   outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv, nixos-generators }:
+  # NOTE: when demod input is enabled, add `demod` to the outputs args above.
   let
     system = "x86_64-linux";
     pkgs = import nixpkgs {
@@ -618,6 +627,29 @@
       };
 
       # ======================================================================
+      # DSP-VM-DEMOD — ArchibaldOS DSP VM with DeMoD RT engine baked in
+      # Same as dsp-vm but includes demod-rt (Faust FX processing inside VM).
+      # Requires the `demod` flake input — uncomment it + this block + the
+      # package output below to build.
+      # ======================================================================
+      # dsp-vm-demod = nixpkgs.lib.nixosSystem {
+      #   inherit system;
+      #   specialArgs = { inherit musnix demod; };
+      #   modules = dspVmModules ++ [
+      #     ./modules/demod-rt.nix
+      #     ({ config, pkgs, lib, ... }: {
+      #       services.demod-rt = {
+      #         enable = true;
+      #         package = demod.packages.${system}.demod-rt;
+      #         rtCore = 0;           # CPU 0 (only vCPU in VM)
+      #         rtPriority = 80;      # Below JACK (99)
+      #         # faustLibs = [ /path/to/compiled/effects.so ];
+      #       };
+      #     })
+      #   ];
+      # };
+
+      # ======================================================================
       # ARCHIBALDOS-RISCV - RT Audio SD image for StarFive JH7110 boards
       # (VisionFive 2 / DeepComputing Framework 13 RV). riscv64-linux.
       # Kernel: mainline Linux 6.12 with native PREEMPT_RT (CachyOS RT does
@@ -713,6 +745,29 @@
           })
         ];
       }).config.system.build.qcow2;
+
+      # DSP coprocessor VM image with DeMoD RT engine (qcow2).
+      # Requires the `demod` flake input — uncomment to build.
+      # dsp-vm-demod-qcow2 = (nixpkgs.lib.nixosSystem {
+      #   inherit system;
+      #   specialArgs = { inherit musnix demod; };
+      #   modules = dspVmModules ++ [
+      #     ./modules/demod-rt.nix
+      #     ({ config, pkgs, lib, ... }: {
+      #       services.demod-rt = {
+      #         enable = true;
+      #         package = demod.packages.${system}.demod-rt;
+      #       };
+      #     })
+      #     ({ config, pkgs, lib, ... }: {
+      #       system.build.qcow2 = pkgs.callPackage "${nixpkgs}/nixos/lib/make-disk-image.nix" {
+      #         inherit config lib pkgs;
+      #         diskSize = 4096;
+      #         format = "qcow2";
+      #       };
+      #     })
+      #   ];
+      # }).config.system.build.qcow2;
     };
 
     # ========================================================================

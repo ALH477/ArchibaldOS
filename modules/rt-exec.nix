@@ -3,7 +3,7 @@
 # Nix derivation for rt-exec — real-time wrapper for JACK2.
 # Does mlockall(MCL_FUTURE), SCHED_FIFO(99), CPU pinning, THP disable,
 # and max rlimits before exec'ing jackd. Eliminates page-fault xruns.
-{ stdenv, gcc }:
+{ stdenv, gcc, lib }:
 
 stdenv.mkDerivation {
   name = "rt-exec";
@@ -22,9 +22,9 @@ stdenv.mkDerivation {
     cp rt-exec $out/bin/rt-exec
   '';
 
-  meta = with stdenv.lib; {
+  meta = {
     description = "Real-time process wrapper — mlockall + SCHED_FIFO + CPU pin for audio";
-    license = licenses.bsd3;
-    platforms = platforms.linux;
+    license = lib.licenses.bsd3;
+    platforms = lib.platforms.linux;
   };
 }

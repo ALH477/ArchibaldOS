@@ -212,7 +212,7 @@ in
     # The default (1000000 = 1s) throttles RT tasks after 1s of CPU time
     # in a 1s window to prevent system lockup. We disable it entirely
     # because our DSP task IS the system's primary purpose.
-    "kernel.sched_rt_runtime_us" = lib.mkForce -1;
+    "kernel.sched_rt_runtime_us" = lib.mkForce (-1);
 
     # ── Timer migration: keep timers on the local CPU ────────────────────────
     # Default (1) allows the kernel to migrate timers across CPUs for
