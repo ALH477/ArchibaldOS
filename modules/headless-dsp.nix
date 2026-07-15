@@ -252,6 +252,7 @@ in
     "transparent_hugepage=never"
     "quiet"
     "loglevel=3"
+    "console=ttyS0"
   ];
 
   # ── Deep sysctl tuning ─────────────────────────────────────────────────────
