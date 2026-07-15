@@ -744,6 +744,8 @@
               inherit config lib pkgs;
               diskSize = 8192;       # 8GB — NixOS + JACK2 + PipeWire + musnix RT stack
               format = "qcow2";
+              label = "nixos";       # Must match fileSystems."/".device = "/dev/disk/by-label/nixos"
+              additionalSpace = "512M";  # Extra space for Nix store growth
             };
           })
         ];
