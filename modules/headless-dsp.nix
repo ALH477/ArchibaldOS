@@ -71,11 +71,13 @@ in
     wireplumber.enable = true;
   };
 
+  # ── PipeWire: 32/96k — pushed to the limit ─────────────────────────────────
+  # 32 samples @ 96kHz = 0.33ms per period. Matches JACK2 ALSA backend.
   services.pipewire.extraConfig.pipewire."92-dsp-latency" = {
     "context.properties" = {
       "default.clock.rate" = 96000;
-      "default.clock.quantum" = 64;
-      "default.clock.min-quantum" = 32;
+      "default.clock.quantum" = 32;
+      "default.clock.min-quantum" = 16;
       "default.clock.max-quantum" = 256;
     };
   };
@@ -114,7 +116,10 @@ in
 
       # jackd with ALSA backend — direct hardware access to the VFIO USB
       # audio interface. -d alsa -d hw:0 uses the first ALSA device (the
-      # passed-through USB interface). 64 frames @ 96kHz = 0.67ms.
+      # passed-through USB interface).
+      # 32 frames @ 96kHz = 0.33ms per period, 0.67ms buffer (n=2).
+      # Input latency: ~0.46ms (0.33ms period + 0.125ms USB micro-frame).
+      # If xruns, bump to -p 48 or -p 64.
       ExecStart = pkgs.writeShellScript "jack2-alsa-start" ''
         exec ${rt-exec}/bin/rt-exec \
           ${pkgs.jack2}/bin/jackd \
@@ -122,7 +127,7 @@ in
           -d alsa \
           -d hw:0 \
           -r 96000 \
-          -p 64 \
+          -p 32 \
           -n 2 \
           -i 2 \
           -o 2
@@ -152,12 +157,13 @@ in
         # Wait for JACK ALSA to be ready
         sleep 2
         # Create NETJACK master on port 4713, bridging local JACK to network
+        # 32 frames @ 96kHz = 0.33ms — matches JACK ALSA backend
         exec ${pkgs.jack2}/bin/jack_netsource \
           -n archibaldos-dsp \
           -p 4713 \
           -C 2 \
           -P 2 \
-          -l 64 \
+          -l 32 \
           -r 96000
       '';
 
