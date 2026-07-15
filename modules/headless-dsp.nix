@@ -172,7 +172,7 @@ in
   };
 
   # Open NETJACK port
-  networking.firewall.allowedTCPPorts = [ 4713 ];
+  networking.firewall.allowedTCPPorts = [ 4713 7777 ];
   networking.firewall.allowedUDPPorts = [ 4713 ];
 
   # ── Users ──────────────────────────────────────────────────────────────────
@@ -187,6 +187,37 @@ in
 
   services.getty.autologinUser = lib.mkForce "dsp";
   services.openssh.enable = true;
+
+  # ── DSP Control Bridge — expose orchestrator control socket over TCP ──────
+  # The DeMoD orchestrator already has a JSON-lines Unix domain socket at
+  # /run/demod/control.sock. This bridge forwards TCP:7777 → that socket
+  # so remote clients (Oligarchy dsp-ctl, USB networking, HydraMesh) can
+  # control the DSP coprocessor.
+  #
+  # No Python — just socat, which is ~zero overhead.
+  #
+  # Protocol: JSON-lines (one JSON object per line, response per line)
+  # Commands: ping, get_health, get_state, load_fx, unload_fx,
+  #           set_param, fx_bypass, set_bpm, set_gain, note_on, note_off
+  #
+  # Usage from host:
+  #   dsp-ctl --transport tcp --host <this-ip> --port 7777 status
+  systemd.services.dsp-control-bridge = {
+    description = "DSP Control Bridge — TCP → orchestrator Unix socket";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network.target" "demod-rt.service" ];
+    wants = [ "demod-rt.service" ];
+
+    serviceConfig = {
+      Type = "simple";
+      Restart = "on-failure";
+      RestartSec = 3;
+
+      # socat TCP-LISTEN:7777,fork → UNIX-CONNECT:/run/demod/control.sock
+      # fork = one process per connection, reuseaddr = quick reconnect
+      ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:7777,reuseaddr,fork UNIX-CONNECT:/run/demod/control.sock";
+    };
+  };
 
   # ── Packages ───────────────────────────────────────────────────────────────
   environment.systemPackages = with pkgs; [
