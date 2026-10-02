@@ -31,18 +31,34 @@
 #   - kernel.timer_migration=0 — keep timers local
 #   - dev.rtc.max-user-freq=8192 — max timer precision
 #
-# JACK2 wrapped with rt-exec: mlockall(MCL_FUTURE) + SCHED_FIFO(99) + CPU
-# pin + THP disable + max rlimits BEFORE jackd starts.
+# JACK2 wrapped with rt-exec: raised rlimits + SCHED_FIFO(99) + CPU pin +
+# THP disable BEFORE jackd starts. jackd -R locks its own memory; a lock taken
+# by the wrapper would not survive execve (see rt-exec.c).
 #
 # 64 samples @ 96kHz = 0.67ms round-trip latency target.
+#
+# ── Control plane ────────────────────────────────────────────────────────────
+# The DSP control socket accepts load_fx/synth.load, which make the engine
+# dlopen a path, so who can reach it is decided here rather than assumed:
+#   - the TCP bridge runs as the engine's own unprivileged user, sandboxed, and
+#     socat itself refuses any peer outside `archibald.dsp.control.allowFrom`
+#     (in-process, so it holds even where cgroup IP filtering is unavailable;
+#     IPAddressAllow repeats it as defence in depth);
+#   - the firewall is ON, opening only NETJACK, the control port and ssh;
+#   - sshd takes keys only (the image ships a well-known console password).
+# The default allowFrom is QEMU user-mode networking's host address, which is
+# where a host-side `hostfwd=tcp:127.0.0.1:P-:7777` (Oligarchy's dsp-vm module)
+# arrives from. Over a tap/bridge, set it to the host's address.
+# See docs/security.md.
 # ============================================================================
 { config, lib, pkgs, ... }:
 
 let
   rt-exec = pkgs.callPackage ./rt-exec.nix { };
+  ctl = config.archibald.dsp.control;
 in
 {
-  imports = [ ./audio.nix ./demod-rt.nix ];
+  imports = [ ./audio.nix ./demod-rt.nix ./dsp-control-options.nix ];
 
   # ── musnix: PREEMPT_RT kernel + RT audio tooling ────────────────────────────
   musnix = {
@@ -59,7 +75,8 @@ in
   services.udisks2.enable = lib.mkForce false;
   services.blueman.enable = lib.mkForce false;
   services.avahi.enable = lib.mkForce false;
-  networking.firewall.enable = false;
+  # On. The port lists below used to be dead config under `enable = false`.
+  networking.firewall.enable = lib.mkForce true;
 
   # ── PipeWire: ALSA routing only. No JACK compat (standalone JACK2 used). ───
   services.pipewire = {
@@ -95,8 +112,11 @@ in
   systemd.services.jack2-alsa = {
     description = "JACK2 ALSA Backend — Direct VFIO USB Audio";
     wantedBy = [ "multi-user.target" ];
-    after = [ "pipewire.service" "sound.target" ];
-    requires = [ "pipewire.service" ];
+    # NOT Requires=pipewire.service. PipeWire is not systemWide here, so NixOS
+    # masks the system pipewire.service (enable = false -> /dev/null), and a
+    # Requires= on a masked unit fails the start: this unit, and everything
+    # requiring it, could not come up. jackd opens hw:0 itself.
+    after = [ "sound.target" ];
 
     serviceConfig = {
       Type = "simple";
@@ -121,7 +141,7 @@ in
       # Input latency: ~0.46ms (0.33ms period + 0.125ms USB micro-frame).
       # If xruns, bump to -p 48 or -p 64.
       ExecStart = pkgs.writeShellScript "jack2-alsa-start" ''
-        exec ${rt-exec}/bin/rt-exec \
+        exec ${rt-exec}/bin/rt-exec --cpu 0 --prio 99 -- \
           ${pkgs.jack2}/bin/jackd \
           -R \
           -d alsa \
@@ -171,8 +191,8 @@ in
     };
   };
 
-  # Open NETJACK port
-  networking.firewall.allowedTCPPorts = [ 4713 7777 ];
+  # NETJACK and the control bridge. ssh opens its own port (openFirewall).
+  networking.firewall.allowedTCPPorts = [ 4713 ctl.port ];
   networking.firewall.allowedUDPPorts = [ 4713 ];
 
   # ── Users ──────────────────────────────────────────────────────────────────
@@ -186,7 +206,19 @@ in
   };
 
   services.getty.autologinUser = lib.mkForce "dsp";
-  services.openssh.enable = true;
+
+  # Keys only. `dsp` ships with a published password and is in wheel, so a
+  # password login over ssh was root for anyone who could reach port 22. The
+  # serial console (autologin) is the way in without a key; add one with
+  # users.users.dsp.openssh.authorizedKeys.keys in your own module.
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "no";
+    };
+  };
 
   # ── DSP Control Bridge — expose orchestrator control socket over TCP ──────
   # The DeMoD orchestrator already has a JSON-lines Unix domain socket at
@@ -200,8 +232,13 @@ in
   # Commands: ping, get_health, get_state, load_fx, unload_fx,
   #           set_param, fx_bypass, set_bpm, set_gain, note_on, note_off
   #
-  # Usage from host:
-  #   dsp-ctl --transport tcp --host <this-ip> --port 7777 status
+  # Usage from host (through a hostfwd to this guest's control port):
+  #   dsp-ctl --transport tcp --host 127.0.0.1 --port <forwarded port> status
+  #
+  # It used to run as root, listen on every address with the firewall off, and
+  # accept anyone. Now: the engine's own user, no capabilities, a syscall and
+  # address-family allowlist, and socat's `range=` refusing any peer outside
+  # allowFrom before a byte is relayed.
   systemd.services.dsp-control-bridge = {
     description = "DSP Control Bridge — TCP → orchestrator Unix socket";
     wantedBy = [ "multi-user.target" ];
@@ -213,9 +250,39 @@ in
       Restart = "on-failure";
       RestartSec = 3;
 
-      # socat TCP-LISTEN:7777,fork → UNIX-CONNECT:/run/demod/control.sock
-      # fork = one process per connection, reuseaddr = quick reconnect
-      ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:7777,reuseaddr,fork UNIX-CONNECT:/run/demod/control.sock";
+      # fork = one process per connection, reuseaddr = quick reconnect,
+      # range = the only peers socat will talk to (checked per accept).
+      ExecStart = "${pkgs.socat}/bin/socat "
+        + "TCP4-LISTEN:${toString ctl.port},reuseaddr,fork,range=${ctl.allowFrom} "
+        + "UNIX-CONNECT:${config.services.demod-rt.controlSocket}";
+
+      User = "dsp";
+      Group = "audio";
+      NoNewPrivileges = true;
+      CapabilityBoundingSet = [ "" ];
+      AmbientCapabilities = [ "" ];
+      RestrictAddressFamilies = [ "AF_INET" "AF_UNIX" ];
+      IPAddressDeny = "any";
+      IPAddressAllow = [ ctl.allowFrom ];
+      SystemCallFilter = [ "@system-service" "~@privileged" "~@resources" ];
+      SystemCallArchitectures = "native";
+      ProtectSystem = "strict";
+      ReadWritePaths = [ "-${dirOf config.services.demod-rt.controlSocket}" ];
+      ProtectHome = true;
+      PrivateTmp = true;
+      PrivateDevices = true;
+      ProtectKernelTunables = true;
+      ProtectKernelModules = true;
+      ProtectKernelLogs = true;
+      ProtectControlGroups = true;
+      ProtectClock = true;
+      ProtectHostname = true;
+      RestrictNamespaces = true;
+      RestrictRealtime = true;
+      RestrictSUIDSGID = true;
+      LockPersonality = true;
+      MemoryDenyWriteExecute = true;
+      UMask = "0077";
     };
   };
 

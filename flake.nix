@@ -11,7 +11,15 @@
 # DSP Coprocessor VM: The `dsp-vm` configuration + `dsp-vm-qcow2` package
 # build a headless RT guest image designed for use with the Oligarchy NixOS
 # host (https://github.com/ALH477/Oligarchy). The host's `vm-manager/dsp-vm.nix`
-# module boots this qcow2 with CPU isolation + NETJACK audio routing.
+# module boots this qcow2 with CPU isolation + NETJACK audio routing — under
+# OVMF by default, which is why the image is hybrid BIOS+UEFI
+# (modules/dsp-vm-image.nix).
+#
+# Gates: `nix flake check` runs checks.rt-exec (the wrapper's effects, read
+# from the exec'd process) and the eval-only contracts checks.dsp-vm-contract
+# and checks.robotics-contract. packages.dsp-vm-boot-proxy boots the image
+# layout under SeaBIOS and OVMF (slow: QEMU without KVM inside the sandbox),
+# and is a package, not a check, so `nix flake check` stays cheap.
 #
 # Organization: https://github.com/ALH477
 # ============================================================================
@@ -59,6 +67,9 @@
     dspVmModules = [
       musnix.nixosModules.musnix
       ./modules/headless-dsp.nix
+      # Disk layout + bootloader: hybrid GPT, GRUB for BIOS and as the
+      # removable UEFI loader, and system.build.qcow2 itself.
+      ./modules/dsp-vm-image.nix
       ({ config, pkgs, lib, ... }: {
         system.stateVersion = "24.11";
         boot.supportedFilesystems.zfs = lib.mkForce false;
@@ -68,18 +79,6 @@
         networking.useDHCP = true;
         networking.networkmanager.enable = lib.mkForce false;
 
-        # Root filesystem on virtio disk (for qcow2 VM image)
-        fileSystems."/" = {
-          device = "/dev/disk/by-label/nixos";
-          fsType = "ext4";
-        };
-
-        # GRUB bootloader on virtio disk
-        boot.loader.grub.enable = true;
-        boot.loader.grub.device = "/dev/vda";
-        boot.loader.grub.efiSupport = false;
-        boot.loader.timeout = 1;  # Fast boot — no menu delay
-        
         # Serial console output for VM debugging
         boot.kernelParams = [ "console=ttyS0" ];
       })
@@ -361,31 +360,8 @@
             users.groups.dialout = {};
             users.groups.plugdev = {};
 
-            # udev rules for robotics hardware
-            services.udev.extraRules = ''
-              # Arduino
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", MODE="0666", GROUP="dialout"
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", MODE="0666", GROUP="dialout"
-              
-              # FTDI
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0666", GROUP="dialout"
-              
-              # Silicon Labs CP210x
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", MODE="0666", GROUP="dialout"
-              
-              # STM32
-              SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", MODE="0666", GROUP="plugdev"
-              
-              # Teensy
-              SUBSYSTEM=="usb", ATTRS{idVendor}=="16c0", MODE="0666", GROUP="plugdev"
-              
-              # Generic USB serial
-              KERNEL=="ttyUSB*", MODE="0666", GROUP="dialout"
-              KERNEL=="ttyACM*", MODE="0666", GROUP="dialout"
-            '';
-
-            # CAN bus kernel modules
-            boot.kernelModules = [ "can" "can_raw" "can_bcm" "vcan" "slcan" ];
+            # udev rules (group-scoped, 0660) and the CAN modules come from
+            # profiles.robotics.hardware.{arduino,canbus} in modules/profiles.nix.
 
             # Live user with robotics groups
             users.users.nixos = {
@@ -577,18 +553,7 @@
             branding.enable = true;
             branding.variant = "robotics";
 
-            services.udev.extraRules = ''
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", MODE="0666", GROUP="dialout"
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", MODE="0666", GROUP="dialout"
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0666", GROUP="dialout"
-              SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", MODE="0666", GROUP="dialout"
-              SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", MODE="0666", GROUP="plugdev"
-              SUBSYSTEM=="usb", ATTRS{idVendor}=="16c0", MODE="0666", GROUP="plugdev"
-              KERNEL=="ttyUSB*", MODE="0666", GROUP="dialout"
-              KERNEL=="ttyACM*", MODE="0666", GROUP="dialout"
-            '';
-
-            boot.kernelModules = [ "can" "can_raw" "can_bcm" "vcan" "slcan" ];
+            # udev rules (0660) and CAN modules: profiles.robotics.hardware.*
 
             users.groups.dialout = {};
             users.groups.plugdev = {};
@@ -732,24 +697,23 @@
       archibaldOS-riscv-sdimage = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
 
       # DSP coprocessor VM image (qcow2) — for QEMU/KVM on Oligarchy host.
+      # Hybrid GPT: boots under SeaBIOS and under OVMF (the host's default).
       # Build: nix build .#dsp-vm-qcow2
       # Place: cp result/*.qcow2 ~/vms/archibaldos-dsp.qcow2
-      dsp-vm-qcow2 = (nixpkgs.lib.nixosSystem {
-        inherit system;
-        specialArgs = { inherit musnix; };
-        modules = dspVmModules ++ [
-          ({ config, pkgs, lib, ... }: {
-            # Build a qcow2 disk image using nixpkgs' make-disk-image
-            system.build.qcow2 = pkgs.callPackage "${nixpkgs}/nixos/lib/make-disk-image.nix" {
-              inherit config lib pkgs;
-              diskSize = 8192;       # 8GB — NixOS + JACK2 + PipeWire + musnix RT stack
-              format = "qcow2";
-              label = "nixos";       # Must match fileSystems."/".device = "/dev/disk/by-label/nixos"
-              additionalSpace = "512M";  # Extra space for Nix store growth
-            };
-          })
-        ];
-      }).config.system.build.qcow2;
+      #   (or assign the derivation to the host's archibaldOS.diskImage)
+      dsp-vm-qcow2 = self.nixosConfigurations.dsp-vm.config.system.build.qcow2;
+
+      # The RT wrapper JACK2 and demod-rt run under (modules/rt-exec.c).
+      rt-exec = pkgs.callPackage ./modules/rt-exec.nix { };
+
+      # Boot the DSP image's layout + loader (modules/dsp-vm-image.nix) under
+      # SeaBIOS and under OVMF, and require userspace on the serial console in
+      # both. A stock kernel stands in for the RT one: what is under test is
+      # the ESP / bios_grub / GRUB install, which no kernel choice changes.
+      # Slow (QEMU TCG in the sandbox); a package, not a check.
+      dsp-vm-boot-proxy = import ./tests/dsp-vm-boot-proxy.nix {
+        inherit pkgs nixpkgs system;
+      };
 
       # DSP coprocessor VM image with DeMoD RT engine (qcow2).
       # Requires the `demod` flake input — uncomment to build.
@@ -773,6 +737,31 @@
       #     })
       #   ];
       # }).config.system.build.qcow2;
+    };
+
+    # ========================================================================
+    # CHECKS — `nix flake check`. Cheap: no KVM, no image build, no kernel.
+    # A gate must exercise what the subsystem DOES (Oligarchy's rule): rt-exec
+    # is run and its effect read back from the exec'd process; the contracts
+    # are evaluated against the real configurations, and every one of them
+    # fails on the tree before this change (tests/README.md says how that was
+    # checked).
+    # ========================================================================
+    checks.${system} = {
+      rt-exec = import ./tests/rt-exec.nix {
+        inherit pkgs;
+        rt-exec = self.packages.${system}.rt-exec;
+      };
+      dsp-vm-contract = import ./tests/dsp-vm-contract.nix {
+        inherit pkgs;
+        dspVm = self.nixosConfigurations.dsp-vm;
+      };
+      robotics-contract = import ./tests/robotics-contract.nix {
+        inherit pkgs;
+        configs = {
+          inherit (self.nixosConfigurations) archibaldOS-robotics archibaldOS-robotics-musnix;
+        };
+      };
     };
 
     # ========================================================================

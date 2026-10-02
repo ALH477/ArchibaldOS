@@ -1,20 +1,21 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2025 DeMoD LLC. All rights reserved.
-# Nix derivation for rt-exec — real-time wrapper for JACK2.
-# Does mlockall(MCL_FUTURE), SCHED_FIFO(99), CPU pinning, THP disable,
-# and max rlimits before exec'ing jackd. Eliminates page-fault xruns.
-{ stdenv, gcc, lib }:
+# Nix derivation for rt-exec — real-time wrapper for JACK2 and demod-rt.
+# Raises rlimits, sets SCHED_FIFO, pins a CPU and disables THP before exec;
+# reports every step it could not establish (--strict makes that fatal).
+# What it does is measured by checks.rt-exec in flake.nix, not assumed.
+{ stdenv, lib }:
 
 stdenv.mkDerivation {
   name = "rt-exec";
   src = ./rt-exec.c;
 
-  nativeBuildInputs = [ gcc ];
-
   dontUnpack = true;
 
+  # -Werror: the THP step was once compiled out by a missing header with no
+  # diagnostic at all; a warning must not be able to hide the next one.
   buildPhase = ''
-    gcc -O2 -Wall -Wextra -o rt-exec $src
+    $CC -O2 -std=c11 -Wall -Wextra -Werror -o rt-exec $src
   '';
 
   installPhase = ''
@@ -23,7 +24,7 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Real-time process wrapper — mlockall + SCHED_FIFO + CPU pin for audio";
+    description = "Real-time process wrapper — rlimits + SCHED_FIFO + CPU pin + THP off, loud on shortfall";
     license = lib.licenses.bsd3;
     platforms = lib.platforms.linux;
   };

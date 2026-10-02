@@ -99,7 +99,10 @@ in
     "vm.stat_interval" = 120;
     "kernel.sched_rt_period_us" = 1000000;
     "vm.dirty_writeback_centisecs" = 1500;
-    "kernel.randomize_va_space" = 0;
+    # kernel.randomize_va_space is left at the kernel default (2). It was set
+    # to 0 here with no stated reason; ASLR moves where mappings land, not how
+    # long the RT path takes, and turning it off on a network-attached
+    # appliance hands every memory-corruption bug a fixed address map.
   };
 
   # ── Power Management ────────────────────────────────────────────

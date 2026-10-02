@@ -158,7 +158,8 @@ Same RT kernel optimized for control systems:
 
 ### Hardware Support
 
-Preconfigured udev rules for:
+Preconfigured udev rules (`profiles.robotics.hardware.arduino`, granted to the
+`dialout` / `plugdev` groups at mode 0660 — add users to those groups) for:
 - Arduino (all variants)
 - FTDI USB-serial
 - STM32 (DFU mode)
@@ -173,9 +174,15 @@ Sub-10ms latency networking:
 services.hydramesh = {
   enable = true;
   mode = "p2p";
-  peers = [ "192.168.1.100:7777" ];
+  peers = [ "10.100.0.2:7777" ];
+  bindAddress = "10.100.0.5";   # your WireGuard address: the DCF wire is plaintext
 };
 ```
+
+Docker-published ports bypass the NixOS firewall, so `bindAddress` is the
+access control; the gRPC API is published on loopback only
+(`grpcBindAddress`). Leaving `bindAddress` at `0.0.0.0`, or `image` unpinned by
+digest, builds with a warning. See [docs/security.md](docs/security.md).
 
 ## Community vs Pro
 
@@ -195,6 +202,23 @@ services.hydramesh = {
 | **Enterprise configs** | ❌ | ✅ |
 
 Pro: https://github.com/ALH477/archibaldos-pro
+
+## Security
+
+[docs/security.md](docs/security.md) states what each image exposes, what was
+fixed, and what is still open. Changes you will notice:
+
+- **DSP guest:** ssh takes keys only (add one with
+  `users.users.dsp.openssh.authorizedKeys.keys`); the control bridge runs as
+  `dsp`, not root, and accepts only `archibald.dsp.control.allowFrom` (default
+  QEMU user-net's host, `10.0.2.2/32`); the firewall is on; the image boots
+  under UEFI (OVMF) as well as BIOS.
+- **HydraMesh:** gRPC on loopback by default; `bindAddress` for the mesh port.
+- **Robotics:** board access is `0660` to `dialout`/`plugdev`, not `0666`.
+
+`nix flake check` runs the gates (`checks.rt-exec`, `checks.dsp-vm-contract`,
+`checks.robotics-contract`); `nix build .#dsp-vm-boot-proxy` boots the DSP
+image layout under SeaBIOS and OVMF. See [tests/README.md](tests/README.md).
 
 ## Development
 
