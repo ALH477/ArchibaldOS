@@ -103,6 +103,13 @@ riscv64, NetworkManager pulls in GHC.
   unit is evaluated, not run.
 - `[OPEN]` Two faders at once on the panel. SDL's touch-to-mouse emulation
   follows the first finger.
-- `[OPEN]` The Oligarchy side: the DSP VM must run the manager, the engine and
-  the bridge, and route `wg-companions` to the VM. That is Oligarchy's
-  `modules/dsp-guest.nix` and `vm-manager`, not this tree.
+- The Oligarchy side exists: its DSP guest imports this flake's `netjack`,
+  `demod-engine` and `dsp-control-bridge` modules (`nixosModules`), sits at
+  `10.78.0.2` on a routed tap, and Oligarchy forwards `wg-companions` to it
+  (UDP and ICMP only). Oligarchy's `.#dsp-netjack-tests` runs a box's
+  NetJack2 commands from these modules against the guest's in its build
+  sandbox; `.#dsp-route-contract` checks the routing. See Oligarchy's
+  `vm-manager/docs/dsp-vm.md`.
+  - `[UNTESTED]` The guest booting under KVM, and the path over a real
+    tunnel (WireGuard's MTU is 1420; NetJack2 sends 1500-byte packets by
+    default).

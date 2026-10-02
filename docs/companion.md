@@ -125,7 +125,9 @@ commander's tunnel address.
   (`archibald.companion.dsp`, [form-factors.md](form-factors.md)).
   `checks.netjack2` runs it between real JACK servers.
   - `[UNTESTED]` On a real network.
-  - `[OPEN]` The Oligarchy DSP VM side.
+  - The Oligarchy DSP VM side exists (Oligarchy's `modules/dsp-guest.nix`
+    and `vm-manager`, guest `10.78.0.2`); see
+    [form-factors.md](form-factors.md).
   - Wired boxes only: over Wi-Fi it needs its own latency budget, measured
     first.
 - `[OPEN]` The desktop profiles' `isolcpus=1-3` has the same problem the
