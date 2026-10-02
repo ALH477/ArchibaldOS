@@ -10,7 +10,8 @@
 # holds where cgroup IP filtering is unavailable), systemd's IPAddressAllow
 # repeats it, and the service runs as the engine's user with no capabilities.
 # Opening the port in the firewall is the importing module's decision.
-# Needs services.demod-rt's options (demod-rt.nix) for the default socket.
+# The default socket is archibald.engine's when the engine is on, else
+# services.demod-rt's (demod-rt.nix); a host with neither sets `socket`.
 { config, lib, pkgs, ... }:
 
 let
@@ -30,8 +31,13 @@ in
     };
     socket = lib.mkOption {
       type = lib.types.str;
-      default = config.services.demod-rt.controlSocket;
-      defaultText = lib.literalExpression "config.services.demod-rt.controlSocket";
+      # The engine as DeMoD runs it (archibald.engine) when that is on, else
+      # the older services.demod-rt. `or` so this module can be imported
+      # without either (a host that only sets `socket`).
+      default =
+        if config.archibald.engine.enable or false then config.archibald.engine.controlSocket
+        else config.services.demod-rt.controlSocket;
+      defaultText = lib.literalExpression "config.archibald.engine.controlSocket (or config.services.demod-rt.controlSocket)";
       description = "The engine's control socket the bridge relays to.";
     };
     port = lib.mkOption {
@@ -77,8 +83,7 @@ in
     systemd.services.dsp-control-bridge = {
       description = "DSP Control Bridge — TCP → orchestrator Unix socket";
       wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" "demod-rt.service" ];
-      wants = [ "demod-rt.service" ];
+      after = [ "network.target" "demod-rt.service" "demod-orchestrator.service" ];
 
       serviceConfig = {
         Type = "simple";

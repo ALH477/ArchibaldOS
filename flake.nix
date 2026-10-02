@@ -913,12 +913,14 @@
     };
 
     # The roles, for a host that is not an ArchibaldOS image: Oligarchy's DSP
-    # VM imports netjack (manager) + demod-engine; anything with JACK can be a
-    # box (adapter) or show the kiosk. They take DeMoD's packages as options.
+    # VM imports netjack (manager), demod-engine and dsp-control-bridge;
+    # anything with JACK can be a box (adapter) or show the kiosk. They take
+    # DeMoD's packages as options.
     nixosModules = {
       jack-graph = ./modules/jack-graph.nix;
       netjack = ./modules/netjack.nix;
       demod-engine = ./modules/demod-engine.nix;
+      dsp-control-bridge = ./modules/dsp-control-bridge.nix;
       kiosk = ./modules/kiosk.nix;
       companion = ./modules/companion.nix;
     };

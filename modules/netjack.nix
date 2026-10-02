@@ -129,7 +129,10 @@ in
         systemd.services.jack-netmanager = {
           description = "NetJack2 manager: boxes join this DSP host on UDP ${toString cfg.port}";
           bindsTo = [ jack.unit ];
-          after = [ jack.unit ];
+          # Bound to one address, the manager cannot load before that address
+          # exists; on 0.0.0.0 it can.
+          after = [ jack.unit ] ++ optionals (cfg.address != null) [ "network-online.target" ];
+          wants = optionals (cfg.address != null) [ "network-online.target" ];
           wantedBy = [ jack.unit ];
           serviceConfig = {
             Type = "oneshot";
