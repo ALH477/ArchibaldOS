@@ -11,10 +11,13 @@
 #      by the VM — direct ALSA access, zero-copy, zero-latency. No hypervisor
 #      translation in the audio path.
 #
-#   2. NETJACK (secondary, for routing processed audio back to host):
-#      JACK2 runs netone driver on port 4713. The host connects via
-#      jack_netsource to receive the DSP-processed audio and route it
-#      through PipeWire to speakers/other apps.
+#   2. NetJack2 (secondary, for audio to and from other machines): this
+#      guest's JACK runs jack2's netmanager on UDP 19000 (modules/netjack.nix,
+#      role "manager"). The host, or any box, joins with netadapter and
+#      appears here as a client named after its host. checks.netjack2 runs
+#      that exchange between two real JACK servers. The earlier units ran
+#      jack_netsource, the netone MASTER, here and on the host (two masters,
+#      no slave), with flags it does not have; that chain could not form.
 #
 # Audio flow:
 #   USB audio interface → VFIO controller → ALSA → JACK2 → demod-rt (Faust FX)
@@ -58,7 +61,7 @@ let
   ctl = config.archibald.dsp.control;
 in
 {
-  imports = [ ./audio.nix ./demod-rt.nix ./dsp-control-bridge.nix ];
+  imports = [ ./audio.nix ./demod-rt.nix ./dsp-control-bridge.nix ./netjack.nix ];
 
   # ── musnix: PREEMPT_RT kernel + RT audio tooling ────────────────────────────
   musnix = {
@@ -99,16 +102,10 @@ in
     };
   };
 
-  # ── JACK2 with NETJACK netone driver (routes processed audio to host) ──────
+  # ── JACK2 on the passed-through interface ─────────────────────────────────
   # JACK2 uses the ALSA device from the VFIO-passed USB controller as its
-  # audio backend, AND runs the netone driver to expose NETJACK on port 4713
-  # so the host can pull the processed audio.
-  #
-  # The -d netone driver creates a NETJACK master. But we also need the
-  # actual ALSA device. JACK2 can only use one backend driver at a time.
-  # Solution: run JACK2 with the ALSA backend (direct hardware access via
-  # VFIO), then run a SEPARATE jack_netsource instance that bridges the
-  # local JACK to the host over the network.
+  # audio backend; NetJack2 rides on it as an internal client (below), so
+  # one server serves both the hardware and the network.
   systemd.services.jack2-alsa = {
     description = "JACK2 ALSA Backend — Direct VFIO USB Audio";
     wantedBy = [ "multi-user.target" ];
@@ -157,43 +154,16 @@ in
     };
   };
 
-  # ── NETJACK bridge — exposes local JACK to host over network ───────────────
-  # jack_netsource runs inside the VM and creates a NETJACK master on port
-  # 4713. The host connects as a slave to pull processed audio.
-  systemd.services.jack2-netjack-master = {
-    description = "JACK2 NETJACK Master — Expose DSP Audio to Host";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "jack2-alsa.service" ];
-    requires = [ "jack2-alsa.service" ];
+  # ── NetJack2 manager: boxes and the host join this guest's JACK ──────────
+  archibald.jack = { user = "dsp"; unit = "jack2-alsa.service"; };
+  archibald.netjack.role = "manager";
 
-    serviceConfig = {
-      Type = "simple";
-      User = "dsp";
-      Group = "audio";
-      Restart = "on-failure";
-      RestartSec = 5;
-
-      ExecStart = pkgs.writeShellScript "jack2-netjack-master-start" ''
-        # Wait for JACK ALSA to be ready
-        sleep 2
-        # Create NETJACK master on port 4713, bridging local JACK to network
-        # 32 frames @ 96kHz = 0.33ms — matches JACK ALSA backend
-        exec ${pkgs.jack2}/bin/jack_netsource \
-          -n archibaldos-dsp \
-          -p 4713 \
-          -C 2 \
-          -P 2 \
-          -l 32 \
-          -r 96000
-      '';
-
-      ExecStop = "${pkgs.coreutils}/bin/kill -TERM $MAINPID";
-    };
-  };
-
-  # NETJACK and the control bridge. ssh opens its own port (openFirewall).
-  networking.firewall.allowedTCPPorts = [ 4713 ctl.port ];
-  networking.firewall.allowedUDPPorts = [ 4713 ];
+  # NetJack2 and the control bridge. ssh opens its own port (openFirewall).
+  # The guest sits behind its host, so NetJack2's manager port and the
+  # ephemeral data ports it negotiates are opened on every interface here.
+  networking.firewall.allowedTCPPorts = [ ctl.port ];
+  networking.firewall.allowedUDPPorts = [ config.archibald.netjack.port ];
+  networking.firewall.allowedUDPPortRanges = [{ from = 1024; to = 65535; }];
 
   # ── Users ──────────────────────────────────────────────────────────────────
   users.users.dsp = {

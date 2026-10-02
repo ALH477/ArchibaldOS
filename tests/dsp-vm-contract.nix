@@ -34,7 +34,7 @@ let
   c = dspVm.config;
   e = withEngine.config;
 
-  owned = [ "jack2-alsa" "jack2-netjack-master" "dsp-control-bridge" ];
+  owned = [ "jack2-alsa" "jack-netmanager" "dsp-control-bridge" ];
 
   # A hard dependency on a .service must name a unit that is defined AND
   # enabled: NixOS turns `enable = false` into a /dev/null mask, and systemd
@@ -104,10 +104,13 @@ let
       detail = "IPAddressDeny/IPAddressAllow";
     }
     {
-      name = "firewall on, control port and NETJACK opened";
+      name = "firewall on, control port and NetJack2 opened; no unit runs jack_netsource";
       ok = c.networking.firewall.enable
         && lib.elem ctl.port c.networking.firewall.allowedTCPPorts
-        && lib.elem 4713 c.networking.firewall.allowedUDPPorts;
+        && lib.elem 19000 c.networking.firewall.allowedUDPPorts
+        && lib.hasInfix "netmanager" c.systemd.services.jack-netmanager.serviceConfig.ExecStart
+        && !lib.any (u: lib.hasInfix "jack_netsource" (toString (u.serviceConfig.ExecStart or "")))
+          (lib.attrValues c.systemd.services);
       detail = "firewall.enable = ${lib.boolToString c.networking.firewall.enable}";
     }
     {

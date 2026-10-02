@@ -2,10 +2,10 @@
 # tests/
 
 Gates for the DSP guest, `rt-exec`, the robotics images and the installer.
-`nix flake check` runs the five `checks`; the boot proxy is a package because it boots VMs.
+`nix flake check` runs the seven `checks`; the boot proxy is a package because it boots VMs.
 
 ```sh
-nix flake check                          # checks.{rt-exec,dsp-vm-contract,robotics-contract,installed-contract,installer-unit}
+nix flake check                          # checks.{rt-exec,dsp-vm-contract,robotics-contract,installed-contract,installer-unit,netjack2,roles-contract}
 nix build .#dsp-vm-boot-proxy            # needs the `kvm` system feature
 bash tests/rt-exec-check.sh "$(nix build --print-out-paths .#rt-exec)/bin/rt-exec"
 ```
@@ -17,6 +17,8 @@ bash tests/rt-exec-check.sh "$(nix build --print-out-paths .#rt-exec)/bin/rt-exe
 | `robotics-contract.nix` | `checks.robotics-contract` |
 | `installed-contract.nix`, `fixtures/installed/` | `checks.installed-contract` |
 | `installer-unit.nix`, `../installer/calamares/tests/` | `checks.installer-unit` |
+| `netjack2/`, `roles.nix`, `../tools/jack-router/` | `checks.netjack2` |
+| `roles-contract.nix`, `fixtures/installed/rack-efi/` | `checks.roles-contract` |
 | `dsp-vm-boot-proxy.nix` | `packages.dsp-vm-boot-proxy` |
 
 ## Each gate fails on the tree before it
@@ -54,6 +56,15 @@ run against, or evaluated over, the previous tree:
   plus `test_profile_install_copies_the_flake_and_installs_it`. Nothing else
   changed state. `installer-unit` also builds a doctored upstream on every
   run and requires the drift guard to fail it.
+- **`netjack2`**: before the DSP host's router starts, a box's tone comes back
+  at 0.0000; with it, 0.4997, and 0.4998 for a box that joined later. Those
+  numbers come from the modules' own commands. The NetJack2 units it replaced
+  (`jack_netsource` on both sides) could not have formed a link at all.
+- **`roles-contract`**: a copy with three mutations fails exactly the three
+  targeted checks (12/15):
+  - the kiosk wanted by `graphical.target`;
+  - the DSP host not routed into the tunnel;
+  - the kiosk on the simulator even on a rack unit.
 - **`dsp-vm-boot-proxy`**: not run against the old layout. A BIOS-only image
   under OVMF is the PXE loop Oligarchy already recorded.
 

@@ -45,6 +45,16 @@
     '';
   }
   {
+    id = "rack";
+    name = "Rack unit / mixer";
+    description = ''
+      The companion plus the DeMoD engine on this machine's own interface: a
+      rack PC or mini-PC that is the mixer. With a touchscreen attached, its
+      front panel is DeMoD Mixer; without one it runs headless. Oligarchy
+      commands it like any companion.
+    '';
+  }
+  {
     id = "hydramesh";
     name = "HydraMesh node";
     description = "Headless HydraMesh P2P networking node (CachyOS kernel, no desktop).";

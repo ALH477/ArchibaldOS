@@ -144,6 +144,8 @@ isolated cores and no C-state cap, because both cost more than they buy on a
 | **HydraMesh** | `hydramesh-iso` | Headless P2P networking node |
 | **Companion** | installed from any ISO | Headless music computer for older 4 GB hardware, commanded by Oligarchy |
 | **Companion (Surface)** | installed from any ISO | The companion on the linux-surface kernel |
+| **Rack unit / mixer** | installed from any ISO | The companion with the DeMoD engine on board |
+| **Companion SD images** | `companion-pi4`, `companion-pi5`, `companion-riscv` | Raspberry Pi 4/5 and StarFive JH7110 as companions |
 
 ## Installing
 
@@ -169,6 +171,16 @@ host commands it over WireGuard: `dsp-ctl` drives JACK and the DSP stack, and
 `oligarchy-companion deploy` builds on Oligarchy and switches the companion.
 Install steps, enrolment and what is still untested are in
 [docs/companion.md](docs/companion.md).
+
+## Laptops, embedded boards, rack units
+
+The same role runs on an x86 laptop, a Raspberry Pi 4/5, a JH7110 board or a
+rack PC. With a touchscreen attached, the front panel is **DeMoD Mixer** in
+kiosk mode; with none, the box is headless. Its DSP runs on the box (a rack
+unit) or on the Oligarchy DSP VM. Audio reaches the VM over NetJack2 inside
+WireGuard (wired boxes), and the mixer drives the VM's engine over DCF.
+[docs/form-factors.md](docs/form-factors.md) has the matrix, the link, and
+what is measured.
 
 ## Audio Profile
 
@@ -256,7 +268,7 @@ fixed, and what is still open. Changes you will notice:
 
 `nix flake check` runs the gates (`checks.rt-exec`, `checks.dsp-vm-contract`,
 `checks.robotics-contract`, `checks.installed-contract`,
-`checks.installer-unit`); `nix build .#dsp-vm-boot-proxy` boots the DSP
+`checks.installer-unit`, `checks.netjack2`, `checks.roles-contract`); `nix build .#dsp-vm-boot-proxy` boots the DSP
 image layout under SeaBIOS and OVMF. See [tests/README.md](tests/README.md).
 
 ## Development

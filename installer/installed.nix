@@ -33,6 +33,7 @@ let
     robotics-musnix = [ "video" "realtime" "dialout" "plugdev" "input" "gpio" "i2c" "spi" ];
     companion = [ "audio" "jackaudio" "realtime" ];
     companion-surface = [ "audio" "jackaudio" "realtime" ];
+    rack = [ "audio" "jackaudio" "realtime" ];
     hydramesh = [ ];
   };
   desktop = elem install.profile [ "audio" "robotics" "audio-musnix" "robotics-musnix" ];

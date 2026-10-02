@@ -57,7 +57,7 @@ let
   systemctl = "/run/current-system/sw/bin/systemctl";
 in
 {
-  imports = [ ./demod-rt.nix ./dsp-control-bridge.nix ];
+  imports = [ ./demod-rt.nix ./dsp-control-bridge.nix ./jack-graph.nix ./netjack.nix ./demod-engine.nix ./kiosk.nix ];
 
   options.archibald.companion = {
     enable = mkEnableOption "the ArchibaldOS companion role (headless audio device commanded by Oligarchy)";
@@ -108,6 +108,28 @@ in
           Also isolate `cpu` from the scheduler (isolcpus, nohz_full,
           rcu_nocbs). Only coherent together with `cpu`: isolating a CPU that
           nothing is pinned to just takes it away from everything.
+        '';
+      };
+    };
+
+    dsp = {
+      host = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "10.78.0.2";
+        description = ''
+          The DSP host this box works with: the Oligarchy DSP VM, reached
+          through the commander's tunnel. Its address is routed into the
+          WireGuard link; the kiosk drives its engine when this box runs none.
+        '';
+      };
+      netjack = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Send this box's audio to the DSP host and play its return (NetJack2,
+          modules/netjack.nix). For wired boxes: a NetJack2 stream over Wi-Fi
+          jitters into xruns.
         '';
       };
     };
@@ -174,7 +196,9 @@ in
     '';
 
     # ── Kernel ────────────────────────────────────────────────────────────
-    boot.kernelPackages = mkDefault pkgs.linuxPackages_cachyos;
+    # CachyOS is x86 only; a Raspberry Pi or a JH7110 board keeps its board
+    # kernel (nixos-hardware sets it, also at mkDefault).
+    boot.kernelPackages = mkIf pkgs.stdenv.hostPlatform.isx86_64 (mkDefault pkgs.linuxPackages_cachyos);
     boot.kernelParams = [ "threadirqs" "preempt=full" ]
       ++ optionals cfg.audio.isolate [ "isolcpus=managed_irq,domain,${isoCpu}" "nohz_full=${isoCpu}" "rcu_nocbs=${isoCpu}" ];
     powerManagement.cpuFreqGovernor = mkDefault "performance";
@@ -252,6 +276,22 @@ in
       };
     };
 
+    # ── JACK graph, engine, NetJack2, kiosk ──────────────────────────────
+    archibald.jack = { user = cfg.user; unit = "jack2-alsa.service"; };
+    archibald.netjack = mkIf (cfg.dsp.netjack && cfg.dsp.host != null) {
+      role = "adapter";
+      address = cfg.dsp.host;
+      interface = mkIf wg.enable wg.interface;
+    };
+    # Dormant until a touchscreen appears (modules/kiosk.nix).
+    archibald.kiosk = {
+      enable = mkDefault (config.archibald.kiosk.program != null);
+      engine = mkDefault (
+        if config.archibald.engine.enable then "local"
+        else if cfg.dsp.host != null then "remote:${cfg.dsp.host}"
+        else "sim");
+    };
+
     # The engine, when someone enables it, runs as the same user as JACK.
     services.demod-rt.user = mkDefault cfg.user;
     services.demod-rt.rtCore = mkDefault (if cfg.audio.cpu == null then 0 else cfg.audio.cpu);
@@ -280,7 +320,8 @@ in
         peers = [{
           publicKey = wg.peerPublicKey;
           endpoint = wg.endpoint;
-          allowedIPs = [ "${cmd.address}/32" ];
+          # The commander, and the DSP host behind it when there is one.
+          allowedIPs = [ "${cmd.address}/32" ] ++ optional (cfg.dsp.host != null) "${cfg.dsp.host}/32";
           persistentKeepalive = 25;
         }];
       };

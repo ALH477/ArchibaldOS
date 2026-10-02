@@ -9,18 +9,16 @@
 # connects to JACK, loads Faust FX chains, and processes audio with
 # SCHED_FIFO + mlockall at 64 samples / 96kHz = 0.67ms.
 #
-# The demod-rt binary is proprietary (PolyForm Shield 1.0.0). It is NOT
-# included in this public repo. To use this module:
+# demod-rt is part of DeMoD's audio stack, GPL-3.0-only or commercial (DeMoD
+# LICENSING.md), public at github.com/ALH477/DeMoD and a flake input here.
+# This header used to call it proprietary (PolyForm Shield); that is TERMINUS,
+# DeMoD's application layer, not the engine.
 #
-#   1. Build demod-rt from the DeMoD repo:
-#        cd ~/demod-work && nix build .#demod-rt
-#   2. Uncomment the `demod` input in flake.nix
-#   3. Uncomment the `dsp-vm-demod` nixosConfiguration in flake.nix
-#   4. Build: nix build .#dsp-vm-demod-qcow2
-#
-# Source: https://github.com/ALH477 (organization)
-# License: PolyForm Shield 1.0.0 (source-available, non-commercial)
-# Contact: alh477@proton.me
+# demod-rt ALONE CANNOT START: it maps the orchestrator's shared memory, which
+# only the orchestrator creates. Use archibald.engine (modules/demod-engine.nix),
+# which runs the orchestrator with demod-rt as its child, the way DeMoD does.
+# This unit stays for checks.dsp-vm-contract's wiring checks and warns when
+# enabled.
 # ============================================================================
 { config, lib, pkgs, ... }:
 
@@ -103,6 +101,8 @@ in
     # units are jack2-alsa and jack2-netjack-master), so enabling this service
     # produced a unit that could never start. checks.dsp-vm-contract now fails
     # on a Requires= naming a service that is not defined and enabled.
+    warnings = [ "services.demod-rt runs demod-rt without the orchestrator, whose shared memory it needs; it will not start. Use archibald.engine (modules/demod-engine.nix)." ];
+
     systemd.services.demod-rt = {
       description = "DeMoD RT Audio Engine (demod-rt)";
       wantedBy = [ "multi-user.target" ];

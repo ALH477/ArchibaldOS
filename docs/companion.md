@@ -96,6 +96,13 @@ takes minutes on a Framework 16 and hours on the tablet, and copies it over.
 The deploy also syncs the copy back to the companion's `/etc/nixos`, so the
 two stay identical.
 
+## Touchscreen and DSP host
+
+Attach a touchscreen and DeMoD Mixer comes up fullscreen on it. Without one,
+the companion stays headless. To work with the Oligarchy DSP VM instead of
+only its own interface, set `archibald.companion.dsp.host`, and on a wired
+box `netjack = true`. Both are covered in [form-factors.md](form-factors.md).
+
 ## What dsp-ctl may do there
 
 dsp-ctl's SSH transport runs `sudo systemctl start|stop|restart` on
@@ -114,10 +121,13 @@ commander's tunnel address.
 - `[UNTESTED]` Real Surface hardware: Wi-Fi (Marvell `mwifiex` on the Pro 3
   and 4 is known to be flaky on mainline), the Type Cover, and thermals under
   a sustained JACK load.
-- `[OPEN]` NETJACK between Oligarchy and the companion is not wired. The DSP
-  VM's `jack2-netjack-master` assumes a virtual network; over Wi-Fi it needs
-  its own latency budget, measured first. Until then, the companion is a
-  local audio device that Oligarchy commands, not a remote sound card.
+- NetJack2 to the Oligarchy DSP VM is now a role
+  (`archibald.companion.dsp`, [form-factors.md](form-factors.md)).
+  `checks.netjack2` runs it between real JACK servers.
+  - `[UNTESTED]` On a real network.
+  - `[OPEN]` The Oligarchy DSP VM side.
+  - Wired boxes only: over Wi-Fi it needs its own latency budget, measured
+    first.
 - `[OPEN]` The desktop profiles' `isolcpus=1-3` has the same problem the
   companion avoids: nothing pins JACK onto the isolated cores. That is a
   change to those profiles and has not been made here.

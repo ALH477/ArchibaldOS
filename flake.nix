@@ -40,16 +40,16 @@
     nixos-generators.url = "github:nix-community/nixos-generators";
     nixos-generators.inputs.nixpkgs.follows = "nixpkgs";
 
-    # DeMoD RT engine (proprietary — PolyForm Shield 1.0.0).
-    # NOT included by default. To build the dsp-vm-demod config:
-    #   1. Ensure ~/demod-work exists (git clone the private repo)
-    #   2. Uncomment the input below
-    #   3. Uncomment the dsp-vm-demod nixosConfiguration + package
-    #   4. nix build .#dsp-vm-demod-qcow2
-    # demod.url = "path:/home/asher/demod-work";
+    # DeMoD: the audio engine (demod-orchestrator + demod-rt, GPL-3.0-only or
+    # commercial) and DeMoD Mixer (MPL-2.0), the kiosk app. Public repo; the
+    # licences are DeMoD's LICENSING.md. git+https with a pinned branch until
+    # the mixer/kiosk work reaches DeMoD's main; follows our nixpkgs so a 4 GB
+    # box carries one closure, not two.
+    demod.url = "git+https://github.com/ALH477/DeMoD?ref=ccr-08f057a2-l4wyo1&shallow=1";
+    demod.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv, nixos-generators }:
+  outputs = { self, nixpkgs, musnix, chaotic, nixos-hardware, nixpkgs-riscv, nixos-generators, demod }:
   # NOTE: when demod input is enabled, add `demod` to the outputs args above.
   let
     system = "x86_64-linux";
@@ -519,6 +519,22 @@
       };
     };
 
+    # DeMoD's packages for whatever system a profile builds: the engine
+    # (archibald.engine) and DeMoD Mixer for the kiosk (archibald.kiosk).
+    demodProfile = { pkgs, lib, ... }:
+      let dp = demod.packages.${pkgs.stdenv.hostPlatform.system} or { }; in {
+        archibald.kiosk.package = lib.mkIf (dp ? demod-mixer) (lib.mkDefault dp.demod-mixer);
+        archibald.engine.packages = lib.mkIf (dp ? demod-rt) (lib.mkDefault dp);
+      };
+
+    # A rack unit or mixer-like box: the companion, plus the DeMoD engine here,
+    # on this box's interface. Its front panel is the mixer when a touchscreen
+    # is attached (driving the local engine), headless otherwise. Oligarchy
+    # commands it like any companion.
+    rackProfile = { ... }: {
+      archibald.engine.enable = true;
+    };
+
     # Microsoft Surface (Intel) on top of the companion: nixos-hardware's
     # linux-surface kernel (built from source: build it on Oligarchy and push
     # it), iptsd for touch, thermald. The companion's CachyOS kernel is
@@ -576,14 +592,24 @@
         ./modules/companion.nix
         baseConfig
         companionProfile
+        demodProfile
       ];
       companion-surface = [
         chaotic.nixosModules.default
         ./modules/companion.nix
         baseConfig
         companionProfile
+        demodProfile
         nixos-hardware.nixosModules.microsoft-surface-pro-intel
         companionSurfaceProfile
+      ];
+      rack = [
+        chaotic.nixosModules.default
+        ./modules/companion.nix
+        baseConfig
+        companionProfile
+        demodProfile
+        rackProfile
       ];
       robotics-musnix = [
         musnix.nixosModules.musnix
@@ -626,6 +652,32 @@
         ++ installerModules { inherit cd profile; };
     };
 
+    # Companion SD images for embedded boards (docs/form-factors.md). No
+    # installer: the card is the system. The companion user's password is
+    # "archibald", published, and expired on first boot, so the first login
+    # (console or SSH) must change it; then `oligarchy-companion enroll` on
+    # Oligarchy ends password logins altogether.
+    sdFirstBoot = { config, pkgs, ... }:
+      let user = config.archibald.companion.user; in {
+        users.users.${user}.initialPassword = "archibald";
+        systemd.services.archibald-expire-password = {
+          description = "Expire the SD image's published password once";
+          wantedBy = [ "multi-user.target" ];
+          unitConfig.ConditionPathExists = "!/var/lib/archibald/password-expired";
+          serviceConfig.Type = "oneshot";
+          script = ''
+            ${pkgs.shadow}/bin/chage -d 0 ${user}
+            mkdir -p /var/lib/archibald
+            touch /var/lib/archibald/password-expired
+          '';
+        };
+      };
+    mkCompanionSd = { system, flake ? nixpkgs, sdModule, board, extra ? [ ] }: flake.lib.nixosSystem {
+      inherit system;
+      specialArgs = { inherit musnix flakeUri; };
+      modules = [ sdModule board ./modules/companion.nix baseConfig companionProfile demodProfile sdFirstBoot ] ++ extra;
+    };
+
     # A system the installer put on a disk: `dir` holds what it wrote,
     # install.json (the user's choices) and hardware-configuration.nix (the
     # scan), plus optional commander.nix (written by Oligarchy's
@@ -646,7 +698,7 @@
           (dir + "/hardware-configuration.nix")
           (import ./installer/installed.nix { inherit install; })
         ]
-        ++ lib.optional (lib.hasPrefix "companion" profile && (install.user or null) != null)
+        ++ lib.optional ((lib.hasPrefix "companion" profile || profile == "rack") && (install.user or null) != null)
           { archibald.companion.user = install.user.name; }
         ++ optionalFile "commander.nix"
         ++ optionalFile "local.nix";
@@ -754,6 +806,43 @@
       # };
 
       # ======================================================================
+      # COMPANION SD IMAGES — embedded boards as companions (headless, or the
+      # mixer kiosk when a touchscreen is attached). docs/form-factors.md.
+      # ======================================================================
+      companion-pi4 = mkCompanionSd {
+        system = "aarch64-linux";
+        sdModule = "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix";
+        board = nixos-hardware.nixosModules.raspberry-pi-4;
+        extra = [{ networking.hostName = "archibald-pi"; }];
+      };
+      companion-pi5 = mkCompanionSd {
+        system = "aarch64-linux";
+        sdModule = "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix";
+        board = nixos-hardware.nixosModules.raspberry-pi-5;
+        extra = [{ networking.hostName = "archibald-pi"; }];
+      };
+      companion-riscv = mkCompanionSd {
+        system = "riscv64-linux";
+        flake = nixpkgs-riscv;
+        sdModule = "${nixpkgs-riscv}/nixos/modules/installer/sd-card/sd-image.nix";
+        board = nixos-hardware.nixosModules.starfive-visionfive-2;
+        extra = [
+          ./modules/rt-audio-riscv.nix
+          ./modules/riscv-cross-overlay.nix
+          ./hardware/jh7110.nix
+          ({ lib, ... }: {
+            networking.hostName = "archibald-rv";
+            # NetworkManager drags in Haskell-built VPN plugins that cannot
+            # bootstrap GHC on riscv64 (the archibaldOS-riscv image's reason).
+            networking.networkmanager.enable = lib.mkForce false;
+            networking.useNetworkd = true;
+            # No mainline GPU driver for the JH7110's IMG BXE.
+            archibald.kiosk.softwareRendering = true;
+          })
+        ];
+      };
+
+      # ======================================================================
       # ARCHIBALDOS-RISCV - RT Audio SD image for StarFive JH7110 boards
       # (VisionFive 2 / DeepComputing Framework 13 RV). riscv64-linux.
       # Kernel: mainline Linux 6.12 with native PREEMPT_RT (CachyOS RT does
@@ -813,6 +902,25 @@
     packages.riscv64-linux = {
       default = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
       archibaldOS-riscv-sdimage = self.nixosConfigurations.archibaldOS-riscv.config.system.build.sdImage;
+      companion-riscv-sdimage = self.nixosConfigurations.companion-riscv.config.system.build.sdImage;
+    };
+
+    # Raspberry Pi companions. Build on an aarch64 machine (or Oligarchy with
+    # its aarch64 binfmt emulation, slowly).
+    packages.aarch64-linux = {
+      companion-pi4-sdimage = self.nixosConfigurations.companion-pi4.config.system.build.sdImage;
+      companion-pi5-sdimage = self.nixosConfigurations.companion-pi5.config.system.build.sdImage;
+    };
+
+    # The roles, for a host that is not an ArchibaldOS image: Oligarchy's DSP
+    # VM imports netjack (manager) + demod-engine; anything with JACK can be a
+    # box (adapter) or show the kiosk. They take DeMoD's packages as options.
+    nixosModules = {
+      jack-graph = ./modules/jack-graph.nix;
+      netjack = ./modules/netjack.nix;
+      demod-engine = ./modules/demod-engine.nix;
+      kiosk = ./modules/kiosk.nix;
+      companion = ./modules/companion.nix;
     };
 
     packages.${system} = {
@@ -902,6 +1010,17 @@
       };
       installed-contract = import ./tests/installed-contract.nix {
         inherit pkgs mkInstalled;
+      };
+      # NetJack2 between real JACK servers in the sandbox, with the modules'
+      # own commands: a box's audio round-trips through the DSP host's engine
+      # position, for a box that joins before the router and one after.
+      roles-contract = import ./tests/roles-contract.nix {
+        inherit pkgs mkInstalled;
+        configs = self.nixosConfigurations;
+      };
+      netjack2 = import ./tests/netjack2/check.nix {
+        inherit pkgs;
+        roles = import ./tests/roles.nix { inherit nixpkgs system; };
       };
       installer-unit = import ./tests/installer-unit.nix {
         inherit pkgs;

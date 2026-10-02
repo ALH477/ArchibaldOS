@@ -27,7 +27,7 @@ The rules being applied, and where they come from:
 | | before | now |
 |---|---|---|
 | control bridge (`socat`, TCP 7777 → engine control socket) | root, every address, any peer | user `dsp`, no capabilities, syscall + address-family allowlist; `socat range=` refuses any peer outside `archibald.dsp.control.allowFrom` (default `10.0.2.2/32`, QEMU user-net's host), repeated by `IPAddressAllow` |
-| firewall | off (its port lists were dead config) | on: NETJACK 4713, the control port, ssh |
+| firewall | off (its port lists were dead config) | on: NetJack2 (UDP 19000 + the ephemeral data ports it negotiates), the control port, ssh |
 | ssh | passwords accepted; `dsp` is in wheel with the published password `dsp` | keys only, no root login |
 | `jack2-alsa` | `Requires=pipewire.service`, which NixOS **masks** here (PipeWire is not system-wide) | no PipeWire dependency |
 | `demod-rt` (when enabled) | `Requires=jack2-netjack.service`, which nothing defines; `NoNewPrivileges=false`; "rt-exec" that was a script running the engine directly; `dsp` added to wheel "for socket creation" | requires `jack2-alsa`; NNP on (its capabilities are ambient); really runs under `rt-exec`; no wheel |
@@ -131,6 +131,25 @@ The companion is commanded remotely, so its exposure is the commander link:
 - **The plaintext rule holds.** The control protocol and DCF carry no
   encryption; WireGuard beneath them is what protects them in transit.
 
+## Kiosk, NetJack2, engine (`modules/kiosk.nix`, `netjack.nix`, `demod-engine.nix`)
+
+- **Kiosk.** cage runs as the audio user on tty1, and only when a
+  touchscreen is present. It conflicts with tty1's getty, so the console
+  login moves off tty1; serial and SSH are unaffected. Anyone at the panel
+  operates the mixer: that is the point of a front panel. The panel gives no
+  shell.
+- **NetJack2** is plaintext, like DCF. On a companion it is opened on the
+  WireGuard interface only: UDP 1024-65535, because NetJack2 negotiates
+  ephemeral data ports (measured). WireGuard's allowed IPs (the commander's
+  /32 and the DSP host's /32) are what bound who can send it.
+- **The engine and its bridge** run as the audio user. The bridge binds
+  127.0.0.1 unless told otherwise, admits private senders only, and gates
+  every datagram (DeMoD `audio-stack/bridge`).
+- **SD images** publish the companion user's password, `archibald`, and
+  expire it at first boot. Until it is changed and the board enrolled, the
+  board accepts that password over SSH on its LAN. Do not put an unchanged
+  card on a network you do not control.
+
 ## Installer
 
 The installed system's `/etc/nixos` is a copy of the flake the ISO was built
@@ -150,7 +169,7 @@ moved aside, not overwritten.
 | `checks.installer-unit` | the Calamares job's unit tests against the real upstream job, the generated page sequence, the upstream-drift guard, the CLI's dry run | seconds |
 | `packages.dsp-vm-boot-proxy` | builds an image with `modules/dsp-vm-image.nix` and boots it under SeaBIOS and OVMF; the guest must report the firmware it came up under from userspace | minutes with KVM; long under TCG |
 
-`nix flake check` runs the first five. `tests/README.md` records how each
+`nix flake check` runs the first five, plus `checks.netjack2` and `checks.roles-contract` (docs/form-factors.md). `tests/README.md` records how each
 was shown to fail on the tree before this change.
 
 ## Open
