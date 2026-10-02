@@ -133,7 +133,6 @@
     # Common base configuration
     baseConfig = { config, pkgs, lib, ... }: {
       system.stateVersion = "24.11";
-      isoImage.squashfsCompression = "gzip -Xcompression-level 1";
       nix.settings.experimental-features = [ "nix-command" "flakes" ];
       networking.networkmanager.enable = true;
       networking.firewall.enable = true;
@@ -149,96 +148,530 @@
       nixpkgs.config.allowUnfree = true;
     };
 
+
+    # ========================================================================
+    # PROFILES — what each system IS, apart from how it is delivered.
+    #
+    # An ISO is `cd module ++ profiles.<p> ++ [ isoOnly live.<p> ]`; an
+    # install made by the ISO's installer is `profiles.<p> ++ [ hardware scan,
+    # installer choices ]` (installer/installed.nix). So what the installer
+    # puts on the disk is what the ISO ran, minus the live session — and
+    # never a generic configuration.nix (docs/installer.md).
+    # ========================================================================
+    audioProfile =
+      ({ config, pkgs, lib, ... }: {
+        nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
+
+        # Select audio profile
+        profiles.audio.enable = true;
+
+        # musnix for audio tooling (not kernel)
+        musnix = {
+          enable = true;
+          kernel.realtime = false;  # Using CachyOS RT instead
+          alsaSeq.enable = true;
+          rtirq.enable = true;
+          das_watchdog.enable = true;
+        };
+
+        # Audio production packages
+        environment.systemPackages = with pkgs; [
+          # Core
+          usbutils libusb1 alsa-firmware alsa-tools
+          dialog mkpasswd
+
+          # DAWs & Audio Tools
+          audacity ardour reaper
+          fluidsynth guitarix
+
+          # Synths & Effects
+          surge helm vmpk calf
+          zrythm carla
+
+          # DSP & Programming
+          csound csound-qt
+          faust faust2alsa faust2jack
+          puredata supercollider
+
+          # Utilities
+          qjackctl pavucontrol
+        ];
+
+        # Graphics
+        hardware.graphics.enable = true;
+        hardware.graphics.extraPackages = with pkgs; [
+          intel-media-driver intel-vaapi-driver libvdpau-va-gl
+        ];
+
+        # Branding
+        branding.enable = true;
+        branding.variant = "audio";
+
+      });
+    roboticsProfile =
+      ({ config, pkgs, lib, ... }: {
+        nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
+
+        # Select robotics profile
+        profiles.robotics.enable = true;
+
+        # musnix for RT tooling (not kernel)
+        musnix = {
+          enable = true;
+          kernel.realtime = false;  # Using CachyOS RT instead
+          rtirq.enable = true;
+          das_watchdog.enable = true;
+        };
+
+        # Robotics packages
+        environment.systemPackages = with pkgs; [
+          # Core
+          usbutils libusb1
+          dialog mkpasswd
+          
+          # ROS 2 (if available in nixpkgs)
+          # ros2-humble
+          
+          # Robotics frameworks
+          # (Gazebo Classic was removed from nixpkgs; add gz-sim from an
+          #  overlay if you need a simulator.)
+
+          # Control & Simulation
+          octave
+          python3Packages.numpy
+          python3Packages.scipy
+          python3Packages.matplotlib
+          python3Packages.sympy
+          python3Packages.control
+          
+          # Serial & Hardware
+          minicom
+          screen
+          picocom
+          python3Packages.pyserial
+          
+          # CAN bus
+          can-utils
+          
+          # Vision
+          opencv
+          python3Packages.opencv4
+          
+          # 3D & CAD
+          freecad
+          openscad
+          blender
+          
+          # Electronics
+          kicad
+          fritzing
+          
+          # Development
+          cmake
+          gnumake
+          gcc
+          gdb
+          clang
+          python3
+          python3Packages.pip
+          
+          # IDEs
+          vscode
+          arduino-ide
+          
+          # Networking for robot comms
+          wireshark
+          tcpdump
+          nmap
+          
+          # Documentation
+          doxygen
+          graphviz
+        ];
+
+        # Graphics for simulation
+        hardware.graphics.enable = true;
+        hardware.graphics.extraPackages = with pkgs; [
+          intel-media-driver intel-vaapi-driver libvdpau-va-gl
+        ];
+
+        # Branding
+        branding.enable = true;
+        branding.variant = "robotics";
+
+        # Enable HydraMesh for robot-to-robot comms
+        services.hydramesh = {
+          enable = lib.mkDefault false;  # User can enable
+          mode = "p2p";
+          hardened = true;
+        };
+
+        # Serial port access
+        users.groups.dialout = {};
+        users.groups.plugdev = {};
+
+        # udev rules (group-scoped, 0660) and the CAN modules come from
+        # profiles.robotics.hardware.{arduino,canbus} in modules/profiles.nix.
+
+        # GPIO/I2C/SPI groups
+        users.groups.gpio = {};
+        users.groups.i2c = {};
+        users.groups.spi = {};
+
+        # Kernel params for robotics (deterministic timing)
+        boot.kernelParams = lib.mkAfter [
+          "usbhid.mousepoll=1"  # Faster USB polling
+        ];
+      });
+    hydrameshProfile =
+      ({ config, pkgs, lib, ... }: {
+        # musnix for RT tooling (not kernel)
+        musnix = {
+          enable = true;
+          kernel.realtime = false;  # Using CachyOS RT instead
+          alsaSeq.enable = false;
+          rtirq.enable = false;
+          das_watchdog.enable = true;
+        };
+
+        environment.systemPackages = with pkgs; [
+          usbutils
+          dialog mkpasswd
+          htop iotop
+          tcpdump iperf3
+          vim git tmux
+        ];
+
+        # Enable HydraMesh
+        services.hydramesh = {
+          enable = true;
+          image = "alh477/hydramesh:latest";
+          mode = "p2p";
+          hardened = true;
+        };
+
+        powerManagement.cpuFreqGovernor = "performance";
+
+        # Headless
+        services.xserver.enable = false;
+        services.displayManager.enable = false;
+
+      });
+    audioMusnixProfile =
+      ({ config, pkgs, lib, ... }: {
+        nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
+
+        profiles.audio.enable = true;
+
+        environment.systemPackages = with pkgs; [
+          usbutils libusb1 alsa-firmware alsa-tools
+          dialog mkpasswd
+          audacity ardour reaper fluidsynth guitarix
+          surge helm vmpk calf zrythm carla
+          csound csound-qt faust faust2alsa faust2jack
+          puredata supercollider qjackctl pavucontrol
+        ];
+
+        hardware.graphics.enable = true;
+        hardware.graphics.extraPackages = with pkgs; [
+          intel-media-driver intel-vaapi-driver libvdpau-va-gl
+        ];
+
+        branding.enable = true;
+        branding.variant = "audio";
+
+      });
+    roboticsMusnixProfile =
+      ({ config, pkgs, lib, ... }: {
+        nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
+
+        profiles.robotics.enable = true;
+
+        environment.systemPackages = with pkgs; [
+          usbutils libusb1 dialog mkpasswd
+          octave
+          python3Packages.numpy python3Packages.scipy
+          python3Packages.matplotlib python3Packages.sympy
+          python3Packages.pyserial
+          minicom screen picocom can-utils
+          opencv freecad openscad blender
+          kicad cmake gnumake gcc gdb clang
+          python3 vscode arduino-ide
+          wireshark tcpdump nmap
+          doxygen graphviz
+        ];
+
+        hardware.graphics.enable = true;
+        hardware.graphics.extraPackages = with pkgs; [
+          intel-media-driver intel-vaapi-driver libvdpau-va-gl
+        ];
+
+        branding.enable = true;
+        branding.variant = "robotics";
+
+        # udev rules (0660) and CAN modules: profiles.robotics.hardware.*
+
+        users.groups.dialout = {};
+        users.groups.plugdev = {};
+        users.groups.gpio = {};
+        users.groups.i2c = {};
+        users.groups.spi = {};
+
+      });
+    # The live session's user (ISO only; an install gets the installer's user).
+    audioLive = { config, pkgs, lib, ... }: {
+      # Live user
+      users.users.nixos = {
+        isNormalUser = true;
+        initialHashedPassword = lib.mkForce null;
+        initialPassword = "nixos";
+        home = "/home/nixos";
+        createHome = true;
+        extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" "docker" ];
+        shell = lib.mkForce pkgs.bashInteractive;
+      };
+
+      services.displayManager.autoLogin = {
+        enable = true;
+        user = "nixos";
+      };    };
+    # The live session's user (ISO only; an install gets the installer's user).
+    roboticsLive = { config, pkgs, lib, ... }: {
+      # Live user with robotics groups
+      users.users.nixos = {
+        isNormalUser = true;
+        initialHashedPassword = lib.mkForce null;
+        initialPassword = "nixos";
+        home = "/home/nixos";
+        createHome = true;
+        extraGroups = [ 
+          "wheel" "video" "networkmanager" "docker"
+          "dialout" "plugdev" "input" "gpio" "i2c" "spi"
+        ];
+        shell = lib.mkForce pkgs.bashInteractive;
+      };
+
+      services.displayManager.autoLogin = {
+        enable = true;
+        user = "nixos";
+      };    };
+    # The live session's user (ISO only; an install gets the installer's user).
+    hydrameshLive = { config, pkgs, lib, ... }: {
+      # Console user
+      users.users.hydramesh = {
+        isNormalUser = true;
+        extraGroups = [ "wheel" "networkmanager" "docker" ];
+        initialPassword = "hydramesh";
+      };
+
+      services.getty.autologinUser = lib.mkForce "hydramesh";    };
+    # The live session's user (ISO only; an install gets the installer's user).
+    audioMusnixLive = { config, pkgs, lib, ... }: {
+      users.users.nixos = {
+        isNormalUser = true;
+        initialHashedPassword = lib.mkForce null;
+        initialPassword = "nixos";
+        home = "/home/nixos";
+        createHome = true;
+        extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" "docker" ];
+        shell = lib.mkForce pkgs.bashInteractive;
+      };
+
+      services.displayManager.autoLogin = {
+        enable = true;
+        user = "nixos";
+      };    };
+    # The live session's user (ISO only; an install gets the installer's user).
+    roboticsMusnixLive = { config, pkgs, lib, ... }: {
+      users.users.nixos = {
+        isNormalUser = true;
+        initialHashedPassword = lib.mkForce null;
+        initialPassword = "nixos";
+        home = "/home/nixos";
+        createHome = true;
+        extraGroups = [ 
+          "wheel" "video" "networkmanager" "docker"
+          "dialout" "plugdev" "input" "gpio" "i2c" "spi"
+        ];
+        shell = lib.mkForce pkgs.bashInteractive;
+      };
+
+      services.displayManager.autoLogin = {
+        enable = true;
+        user = "nixos";
+      };    };
+
+    # ISO-only settings that used to live in baseConfig. An installed system
+    # has no `isoImage` option at all.
+    isoOnly = { ... }: {
+      isoImage.squashfsCompression = "gzip -Xcompression-level 1";
+    };
+
+    # The companion role (modules/companion.nix): headless, 4 GB, commanded by
+    # Oligarchy. JACK runs as archibald.companion.user, which an install sets
+    # to the user it creates; this default only serves evaluating the profile
+    # on its own.
+    companionProfile = { config, lib, ... }: {
+      archibald.companion.enable = true;
+      archibald.companion.user = lib.mkDefault "archibald";
+      users.users = lib.mkIf (config.archibald.companion.user == "archibald") {
+        archibald = { isNormalUser = true; extraGroups = [ "wheel" ]; };
+      };
+    };
+
+    # Microsoft Surface (Intel) on top of the companion: nixos-hardware's
+    # linux-surface kernel (built from source: build it on Oligarchy and push
+    # it), iptsd for touch, thermald. The companion's CachyOS kernel is
+    # mkDefault, so the Surface kernel wins.
+    companionSurfaceProfile = { ... }: {
+      hardware.microsoft-surface.kernelVersion = "longterm";
+    };
+
+    profiles = {
+      audio = [
+        chaotic.nixosModules.default
+        musnix.nixosModules.musnix
+        ./modules/audio.nix
+        ./modules/desktop.nix
+        ./modules/branding.nix
+        ./modules/hydramesh.nix
+        ./modules/profiles.nix
+        cachyosRtConfig
+        baseConfig
+        audioProfile
+      ];
+      robotics = [
+        chaotic.nixosModules.default
+        musnix.nixosModules.musnix
+        ./modules/desktop.nix
+        ./modules/branding.nix
+        ./modules/hydramesh.nix
+        ./modules/profiles.nix
+        cachyosRtConfig
+        baseConfig
+        roboticsProfile
+      ];
+      hydramesh = [
+        chaotic.nixosModules.default
+        musnix.nixosModules.musnix
+        ./modules/hydramesh.nix
+        ./modules/profiles.nix
+        cachyosRtConfig
+        baseConfig
+        hydrameshProfile
+      ];
+      audio-musnix = [
+        musnix.nixosModules.musnix
+        ./modules/audio.nix
+        ./modules/desktop.nix
+        ./modules/branding.nix
+        ./modules/hydramesh.nix
+        ./modules/profiles.nix
+        musnixRtConfig
+        baseConfig
+        audioMusnixProfile
+      ];
+      companion = [
+        chaotic.nixosModules.default
+        ./modules/companion.nix
+        baseConfig
+        companionProfile
+      ];
+      companion-surface = [
+        chaotic.nixosModules.default
+        ./modules/companion.nix
+        baseConfig
+        companionProfile
+        nixos-hardware.nixosModules.microsoft-surface-pro-intel
+        companionSurfaceProfile
+      ];
+      robotics-musnix = [
+        musnix.nixosModules.musnix
+        ./modules/desktop.nix
+        ./modules/branding.nix
+        ./modules/hydramesh.nix
+        ./modules/profiles.nix
+        musnixRtConfig
+        baseConfig
+        roboticsMusnixProfile
+      ];
+    };
+
+    # ── Installer ─────────────────────────────────────────────────────────
+    # What the profile page offers (installer/profiles.nix), the CLI for the
+    # minimal ISO, and the Calamares overlay for the graphical ones. Both run
+    # installer/calamares/distroinstall/main.py; see docs/installer.md.
+    installerProfiles = import ./installer/profiles.nix;
+    installerCli = defaultProfile: pkgs.callPackage ./installer/cli.nix {
+      distro = "ArchibaldOS";
+      source = self;
+      profiles = installerProfiles;
+      inherit defaultProfile;
+    };
+    installerModules = { cd, profile }:
+      [ ({ pkgs, ... }: { environment.systemPackages = [ (installerCli profile) ]; }) ]
+      ++ nixpkgs.lib.optional (nixpkgs.lib.hasInfix "calamares" cd)
+        (import ./installer/iso.nix {
+          distro = "ArchibaldOS";
+          source = self;
+          profiles = installerProfiles;
+          defaultProfile = profile;
+        });
+
+    # An ISO: the installer CD module, the profile, the live session, and the
+    # installer that puts THIS profile (or another) on the disk.
+    mkIso = { cd, profile, live, specialArgs }: nixpkgs.lib.nixosSystem {
+      inherit system specialArgs;
+      modules = [ cd ] ++ profiles.${profile} ++ [ isoOnly live ]
+        ++ installerModules { inherit cd profile; };
+    };
+
+    # A system the installer put on a disk: `dir` holds what it wrote,
+    # install.json (the user's choices) and hardware-configuration.nix (the
+    # scan), plus optional commander.nix (written by Oligarchy's
+    # `oligarchy-companion enroll`) and local.nix (yours; nothing writes it).
+    mkInstalled = dir:
+      let
+        lib = nixpkgs.lib;
+        install = builtins.fromJSON (builtins.readFile (dir + "/install.json"));
+        profile = install.profile or (throw "${toString dir}/install.json names no profile");
+        modules = profiles.${profile} or (throw
+          "install.json asks for profile '${profile}'; this tree has: ${lib.concatStringsSep ", " (builtins.attrNames profiles)}");
+        optionalFile = name: lib.optional (builtins.pathExists (dir + "/${name}")) (dir + "/${name}");
+      in
+      lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit musnix chaotic flakeUri; };
+        modules = modules ++ [
+          (dir + "/hardware-configuration.nix")
+          (import ./installer/installed.nix { inherit install; })
+        ]
+        ++ lib.optional (lib.hasPrefix "companion" profile && (install.user or null) != null)
+          { archibald.companion.user = install.user.name; }
+        ++ optionalFile "commander.nix"
+        ++ optionalFile "local.nix";
+      };
+
   in {
     # ========================================================================
     # NIXOS CONFIGURATIONS
     # ========================================================================
-    nixosConfigurations = {
+    nixosConfigurations = nixpkgs.lib.optionalAttrs (builtins.pathExists ./hosts/installed/install.json) {
+      # This tree as the installer left it in /etc/nixos on an installed
+      # machine: `nixos-rebuild switch --flake /etc/nixos#installed`.
+      installed = mkInstalled ./hosts/installed;
+    } // {
 
       # ======================================================================
       # ARCHIBALDOS - Desktop RT Audio Workstation (x86_64 ISO)
       # Profile: Audio Production
       # Kernel: CachyOS RT with BORE scheduler
       # ======================================================================
-      archibaldOS-iso = nixpkgs.lib.nixosSystem {
-        inherit system;
+      archibaldOS-iso = mkIso {
+        cd = "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix";
+        profile = "audio";
+        live = audioLive;
         specialArgs = { inherit musnix chaotic flakeUri; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
-          chaotic.nixosModules.default
-          musnix.nixosModules.musnix
-          ./modules/audio.nix
-          ./modules/desktop.nix
-          ./modules/branding.nix
-          ./modules/hydramesh.nix
-          ./modules/profiles.nix
-          cachyosRtConfig
-          baseConfig
-          ({ config, pkgs, lib, ... }: {
-            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
-
-            # Select audio profile
-            profiles.audio.enable = true;
-
-            # musnix for audio tooling (not kernel)
-            musnix = {
-              enable = true;
-              kernel.realtime = false;  # Using CachyOS RT instead
-              alsaSeq.enable = true;
-              rtirq.enable = true;
-              das_watchdog.enable = true;
-            };
-
-            # Audio production packages
-            environment.systemPackages = with pkgs; [
-              # Core
-              usbutils libusb1 alsa-firmware alsa-tools
-              dialog mkpasswd
-
-              # DAWs & Audio Tools
-              audacity ardour reaper
-              fluidsynth guitarix
-
-              # Synths & Effects
-              surge helm vmpk calf
-              zrythm carla
-
-              # DSP & Programming
-              csound csound-qt
-              faust faust2alsa faust2jack
-              puredata supercollider
-
-              # Utilities
-              qjackctl pavucontrol
-            ];
-
-            # Graphics
-            hardware.graphics.enable = true;
-            hardware.graphics.extraPackages = with pkgs; [
-              intel-media-driver intel-vaapi-driver libvdpau-va-gl
-            ];
-
-            # Branding
-            branding.enable = true;
-            branding.variant = "audio";
-
-            # Live user
-            users.users.nixos = {
-              isNormalUser = true;
-              initialHashedPassword = lib.mkForce null;
-              initialPassword = "nixos";
-              home = "/home/nixos";
-              createHome = true;
-              extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" "docker" ];
-              shell = lib.mkForce pkgs.bashInteractive;
-            };
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "nixos";
-            };
-          })
-        ];
       };
 
       # ======================================================================
@@ -246,212 +679,22 @@
       # Profile: Robotics & Control Systems
       # Kernel: CachyOS RT with BORE scheduler
       # ======================================================================
-      archibaldOS-robotics = nixpkgs.lib.nixosSystem {
-        inherit system;
+      archibaldOS-robotics = mkIso {
+        cd = "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix";
+        profile = "robotics";
+        live = roboticsLive;
         specialArgs = { inherit musnix chaotic flakeUri; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
-          chaotic.nixosModules.default
-          musnix.nixosModules.musnix
-          ./modules/desktop.nix
-          ./modules/branding.nix
-          ./modules/hydramesh.nix
-          ./modules/profiles.nix
-          cachyosRtConfig
-          baseConfig
-          ({ config, pkgs, lib, ... }: {
-            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
-
-            # Select robotics profile
-            profiles.robotics.enable = true;
-
-            # musnix for RT tooling (not kernel)
-            musnix = {
-              enable = true;
-              kernel.realtime = false;  # Using CachyOS RT instead
-              rtirq.enable = true;
-              das_watchdog.enable = true;
-            };
-
-            # Robotics packages
-            environment.systemPackages = with pkgs; [
-              # Core
-              usbutils libusb1
-              dialog mkpasswd
-              
-              # ROS 2 (if available in nixpkgs)
-              # ros2-humble
-              
-              # Robotics frameworks
-              # (Gazebo Classic was removed from nixpkgs; add gz-sim from an
-              #  overlay if you need a simulator.)
-
-              # Control & Simulation
-              octave
-              python3Packages.numpy
-              python3Packages.scipy
-              python3Packages.matplotlib
-              python3Packages.sympy
-              python3Packages.control
-              
-              # Serial & Hardware
-              minicom
-              screen
-              picocom
-              python3Packages.pyserial
-              
-              # CAN bus
-              can-utils
-              
-              # Vision
-              opencv
-              python3Packages.opencv4
-              
-              # 3D & CAD
-              freecad
-              openscad
-              blender
-              
-              # Electronics
-              kicad
-              fritzing
-              
-              # Development
-              cmake
-              gnumake
-              gcc
-              gdb
-              clang
-              python3
-              python3Packages.pip
-              
-              # IDEs
-              vscode
-              arduino-ide
-              
-              # Networking for robot comms
-              wireshark
-              tcpdump
-              nmap
-              
-              # Documentation
-              doxygen
-              graphviz
-            ];
-
-            # Graphics for simulation
-            hardware.graphics.enable = true;
-            hardware.graphics.extraPackages = with pkgs; [
-              intel-media-driver intel-vaapi-driver libvdpau-va-gl
-            ];
-
-            # Branding
-            branding.enable = true;
-            branding.variant = "robotics";
-
-            # Enable HydraMesh for robot-to-robot comms
-            services.hydramesh = {
-              enable = lib.mkDefault false;  # User can enable
-              mode = "p2p";
-              hardened = true;
-            };
-
-            # Serial port access
-            users.groups.dialout = {};
-            users.groups.plugdev = {};
-
-            # udev rules (group-scoped, 0660) and the CAN modules come from
-            # profiles.robotics.hardware.{arduino,canbus} in modules/profiles.nix.
-
-            # Live user with robotics groups
-            users.users.nixos = {
-              isNormalUser = true;
-              initialHashedPassword = lib.mkForce null;
-              initialPassword = "nixos";
-              home = "/home/nixos";
-              createHome = true;
-              extraGroups = [ 
-                "wheel" "video" "networkmanager" "docker"
-                "dialout" "plugdev" "input" "gpio" "i2c" "spi"
-              ];
-              shell = lib.mkForce pkgs.bashInteractive;
-            };
-
-            # GPIO/I2C/SPI groups
-            users.groups.gpio = {};
-            users.groups.i2c = {};
-            users.groups.spi = {};
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "nixos";
-            };
-
-            # Kernel params for robotics (deterministic timing)
-            boot.kernelParams = lib.mkAfter [
-              "usbhid.mousepoll=1"  # Faster USB polling
-            ];
-          })
-        ];
       };
 
       # ======================================================================
       # HYDRAMESH - Headless P2P Networking Node (x86_64 ISO)
       # Kernel: CachyOS RT with BORE scheduler
       # ======================================================================
-      hydramesh = nixpkgs.lib.nixosSystem {
-        inherit system;
+      hydramesh = mkIso {
+        cd = "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix";
+        profile = "hydramesh";
+        live = hydrameshLive;
         specialArgs = { inherit musnix chaotic flakeUri; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
-          chaotic.nixosModules.default
-          musnix.nixosModules.musnix
-          ./modules/hydramesh.nix
-          ./modules/profiles.nix
-          cachyosRtConfig
-          baseConfig
-          ({ config, pkgs, lib, ... }: {
-            # musnix for RT tooling (not kernel)
-            musnix = {
-              enable = true;
-              kernel.realtime = false;  # Using CachyOS RT instead
-              alsaSeq.enable = false;
-              rtirq.enable = false;
-              das_watchdog.enable = true;
-            };
-
-            environment.systemPackages = with pkgs; [
-              usbutils
-              dialog mkpasswd
-              htop iotop
-              tcpdump iperf3
-              vim git tmux
-            ];
-
-            # Enable HydraMesh
-            services.hydramesh = {
-              enable = true;
-              image = "alh477/hydramesh:latest";
-              mode = "p2p";
-              hardened = true;
-            };
-
-            powerManagement.cpuFreqGovernor = "performance";
-
-            # Headless
-            services.xserver.enable = false;
-            services.displayManager.enable = false;
-
-            # Console user
-            users.users.hydramesh = {
-              isNormalUser = true;
-              extraGroups = [ "wheel" "networkmanager" "docker" ];
-              initialPassword = "hydramesh";
-            };
-
-            services.getty.autologinUser = lib.mkForce "hydramesh";
-          })
-        ];
       };
 
       # ======================================================================
@@ -460,126 +703,19 @@
       # ======================================================================
 
       # Audio with musnix RT kernel
-      archibaldOS-musnix = nixpkgs.lib.nixosSystem {
-        inherit system;
+      archibaldOS-musnix = mkIso {
+        cd = "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix";
+        profile = "audio-musnix";
+        live = audioMusnixLive;
         specialArgs = { inherit musnix flakeUri; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
-          musnix.nixosModules.musnix
-          ./modules/audio.nix
-          ./modules/desktop.nix
-          ./modules/branding.nix
-          ./modules/hydramesh.nix
-          ./modules/profiles.nix
-          musnixRtConfig
-          baseConfig
-          ({ config, pkgs, lib, ... }: {
-            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
-
-            profiles.audio.enable = true;
-
-            environment.systemPackages = with pkgs; [
-              usbutils libusb1 alsa-firmware alsa-tools
-              dialog mkpasswd
-              audacity ardour reaper fluidsynth guitarix
-              surge helm vmpk calf zrythm carla
-              csound csound-qt faust faust2alsa faust2jack
-              puredata supercollider qjackctl pavucontrol
-            ];
-
-            hardware.graphics.enable = true;
-            hardware.graphics.extraPackages = with pkgs; [
-              intel-media-driver intel-vaapi-driver libvdpau-va-gl
-            ];
-
-            branding.enable = true;
-            branding.variant = "audio";
-
-            users.users.nixos = {
-              isNormalUser = true;
-              initialHashedPassword = lib.mkForce null;
-              initialPassword = "nixos";
-              home = "/home/nixos";
-              createHome = true;
-              extraGroups = [ "wheel" "audio" "jackaudio" "video" "networkmanager" "docker" ];
-              shell = lib.mkForce pkgs.bashInteractive;
-            };
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "nixos";
-            };
-          })
-        ];
       };
 
       # Robotics with musnix RT kernel
-      archibaldOS-robotics-musnix = nixpkgs.lib.nixosSystem {
-        inherit system;
+      archibaldOS-robotics-musnix = mkIso {
+        cd = "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix";
+        profile = "robotics-musnix";
+        live = roboticsMusnixLive;
         specialArgs = { inherit musnix flakeUri; };
-        modules = [
-          "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-graphical-calamares-plasma6.nix"
-          musnix.nixosModules.musnix
-          ./modules/desktop.nix
-          ./modules/branding.nix
-          ./modules/hydramesh.nix
-          ./modules/profiles.nix
-          musnixRtConfig
-          baseConfig
-          ({ config, pkgs, lib, ... }: {
-            nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
-
-            profiles.robotics.enable = true;
-
-            environment.systemPackages = with pkgs; [
-              usbutils libusb1 dialog mkpasswd
-              octave
-              python3Packages.numpy python3Packages.scipy
-              python3Packages.matplotlib python3Packages.sympy
-              python3Packages.pyserial
-              minicom screen picocom can-utils
-              opencv freecad openscad blender
-              kicad cmake gnumake gcc gdb clang
-              python3 vscode arduino-ide
-              wireshark tcpdump nmap
-              doxygen graphviz
-            ];
-
-            hardware.graphics.enable = true;
-            hardware.graphics.extraPackages = with pkgs; [
-              intel-media-driver intel-vaapi-driver libvdpau-va-gl
-            ];
-
-            branding.enable = true;
-            branding.variant = "robotics";
-
-            # udev rules (0660) and CAN modules: profiles.robotics.hardware.*
-
-            users.groups.dialout = {};
-            users.groups.plugdev = {};
-            users.groups.gpio = {};
-            users.groups.i2c = {};
-            users.groups.spi = {};
-
-            users.users.nixos = {
-              isNormalUser = true;
-              initialHashedPassword = lib.mkForce null;
-              initialPassword = "nixos";
-              home = "/home/nixos";
-              createHome = true;
-              extraGroups = [ 
-                "wheel" "video" "networkmanager" "docker"
-                "dialout" "plugdev" "input" "gpio" "i2c" "spi"
-              ];
-              shell = lib.mkForce pkgs.bashInteractive;
-            };
-
-            services.displayManager.autoLogin = {
-              enable = true;
-              user = "nixos";
-            };
-          })
-        ];
       };
 
       # ======================================================================
@@ -706,6 +842,10 @@
       # The RT wrapper JACK2 and demod-rt run under (modules/rt-exec.c).
       rt-exec = pkgs.callPackage ./modules/rt-exec.nix { };
 
+      # The installer, from a shell: partition + mount under /mnt, then
+      # `archibaldos-install --profile companion --user you`. Also on every ISO.
+      archibaldos-install = installerCli "audio";
+
       # Boot the DSP image's layout + loader (modules/dsp-vm-image.nix) under
       # SeaBIOS and under OVMF, and require userspace on the serial console in
       # both. A stock kernel stands in for the RT one: what is under test is
@@ -739,6 +879,10 @@
       # }).config.system.build.qcow2;
     };
 
+    # The installed-system builder, for anyone composing a host from this tree
+    # (Oligarchy's `oligarchy-companion` builds a companion's copy with it).
+    lib = { inherit mkInstalled; };
+
     # ========================================================================
     # CHECKS — `nix flake check`. Cheap: no KVM, no image build, no kernel.
     # A gate must exercise what the subsystem DOES (Oligarchy's rule): rt-exec
@@ -755,6 +899,19 @@
       dsp-vm-contract = import ./tests/dsp-vm-contract.nix {
         inherit pkgs;
         dspVm = self.nixosConfigurations.dsp-vm;
+      };
+      installed-contract = import ./tests/installed-contract.nix {
+        inherit pkgs mkInstalled;
+      };
+      installer-unit = import ./tests/installer-unit.nix {
+        inherit pkgs;
+        cli = installerCli "audio";
+        extensions = pkgs.callPackage ./installer/calamares/extensions.nix {
+          distro = "ArchibaldOS";
+          source = self;
+          profiles = installerProfiles;
+          defaultProfile = "audio";
+        };
       };
       robotics-contract = import ./tests/robotics-contract.nix {
         inherit pkgs;

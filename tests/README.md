@@ -1,11 +1,11 @@
 <!-- SPDX-License-Identifier: BSD-3-Clause -->
 # tests/
 
-Gates for the DSP guest, `rt-exec` and the robotics images. `nix flake check`
-runs the three `checks`; the boot proxy is a package because it boots VMs.
+Gates for the DSP guest, `rt-exec`, the robotics images and the installer.
+`nix flake check` runs the five `checks`; the boot proxy is a package because it boots VMs.
 
 ```sh
-nix flake check                          # checks.{rt-exec,dsp-vm-contract,robotics-contract}
+nix flake check                          # checks.{rt-exec,dsp-vm-contract,robotics-contract,installed-contract,installer-unit}
 nix build .#dsp-vm-boot-proxy            # needs the `kvm` system feature
 bash tests/rt-exec-check.sh "$(nix build --print-out-paths .#rt-exec)/bin/rt-exec"
 ```
@@ -15,6 +15,8 @@ bash tests/rt-exec-check.sh "$(nix build --print-out-paths .#rt-exec)/bin/rt-exe
 | `rt-exec-check.sh`, `rt-exec.nix` | `checks.rt-exec` |
 | `dsp-vm-contract.nix` | `checks.dsp-vm-contract` |
 | `robotics-contract.nix` | `checks.robotics-contract` |
+| `installed-contract.nix`, `fixtures/installed/` | `checks.installed-contract` |
+| `installer-unit.nix`, `../installer/calamares/tests/` | `checks.installer-unit` |
 | `dsp-vm-boot-proxy.nix` | `packages.dsp-vm-boot-proxy` |
 
 ## Each gate fails on the tree before it
@@ -38,6 +40,20 @@ run against, or evaluated over, the previous tree:
   both robotics images, and the rules did not depend on
   `profiles.robotics.hardware.arduino` — by inspection of the old source, not
   by running the contract against it.
+- **`installed-contract`, `installer-unit`**: there was no installer before
+  them, so "fails on the old tree" is trivially true. Instead they were run
+  against a copy of this tree with five mutations, each aimed at one
+  guarantee:
+  - sudo gets a bare `systemctl` rule;
+  - the bridge port is opened on every interface;
+  - the console keymap is no longer derived from xkb;
+  - JACK is pinned to CPU 0;
+  - the job installs `#nixos` instead of `#installed`.
+
+  Exactly the targeted checks failed: four contract checks (16/20 passed),
+  plus `test_profile_install_copies_the_flake_and_installs_it`. Nothing else
+  changed state. `installer-unit` also builds a doctored upstream on every
+  run and requires the drift guard to fail it.
 - **`dsp-vm-boot-proxy`**: not run against the old layout. A BIOS-only image
   under OVMF is the PXE loop Oligarchy already recorded.
 

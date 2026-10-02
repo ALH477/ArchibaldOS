@@ -109,16 +109,48 @@ decide what they say.
 changes where mappings land, not how long the RT path takes. It is back at the
 kernel default.
 
-## Gates
+## Companion (`profiles.companion`, `modules/companion.nix`)
+
+The companion is commanded remotely, so its exposure is the commander link:
+
+- **SSH.** Until `commander.sshKeys` is set, sshd accepts the installed
+  user's password, root cannot log in, and the build prints a warning saying
+  so. This is the bootstrap Oligarchy's `oligarchy-companion enroll` uses
+  once. After enrolment, password and keyboard-interactive logins are off, and
+  root takes only the commander's key (for `nixos-rebuild --target-host`).
+- **sudo.** `dsp-ctl`'s SSH transport needs `systemctl start|stop|restart`
+  on two units. The rule allows exactly those six commands without a password,
+  by absolute path, and nothing else.
+- **Control bridge.** It is off until `commander.address` is set. Then socat
+  runs as the companion user with `range=<commander>/32`, and the firewall
+  opens TCP 7777 only on the WireGuard interface. Without WireGuard, the port
+  is open on the LAN, but `range=` still admits only the commander.
+- **WireGuard.** The companion dials and the commander only listens.
+  `allowedIPs` is the commander's /32, so the tunnel routes nothing else. The
+  private key is generated on the machine and never leaves it.
+- **The plaintext rule holds.** The control protocol and DCF carry no
+  encryption; WireGuard beneath them is what protects them in transit.
+
+## Installer
+
+The installed system's `/etc/nixos` is a copy of the flake the ISO was built
+from. Nothing in it is fetched from a URL the user did not see, apart from the
+flake's own locked inputs. `install.json` holds no secrets: the password is set
+by Calamares' users step, or by `passwd` inside the new system for the CLI,
+and is never written to the flake. An existing `/etc/nixos` on the target is
+moved aside, not overwritten.
+
 
 | gate | what it does | cost |
 |---|---|---|
 | `checks.rt-exec` | runs `rt-exec` in the sandbox; reads THP, affinity and limits back from the exec'd process; unprivileged branch requires the `SCHED_FIFO` shortfall to be reported and `--strict` to refuse | seconds |
 | `checks.dsp-vm-contract` | 14 assertions over the evaluated guest: every `Requires=` is defined and enabled, the bridge's user/caps/`range=`, firewall, sshd, UEFI loader | eval only |
 | `checks.robotics-contract` | both robotics images: no `0666`, rules present, and the two options really remove what they say | eval only |
+| `checks.installed-contract` | 20 assertions over installed fixtures: the installer's answers, the companion's sudo list, SSH before and after enrolment, the bridge's range and interface, the WireGuard peer | eval only |
+| `checks.installer-unit` | the Calamares job's unit tests against the real upstream job, the generated page sequence, the upstream-drift guard, the CLI's dry run | seconds |
 | `packages.dsp-vm-boot-proxy` | builds an image with `modules/dsp-vm-image.nix` and boots it under SeaBIOS and OVMF; the guest must report the firmware it came up under from userspace | minutes with KVM; long under TCG |
 
-`nix flake check` runs the first three. `tests/README.md` records how each
+`nix flake check` runs the first five. `tests/README.md` records how each
 was shown to fail on the tree before this change.
 
 ## Open

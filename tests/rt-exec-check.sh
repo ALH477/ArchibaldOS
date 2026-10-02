@@ -40,7 +40,15 @@ else
     pass "Cpus_allowed_list $allowed -> $cpu in the target"
 fi
 
+# ── 2b. --cpu any: affinity left exactly as inherited ───────────────────
+"$RT" --cpu any -- cat /proc/self/status >"$W/st" 2>"$W/err" || fail "rt-exec --cpu any failed: $(cat "$W/err")"
+got=$(grep -P '^Cpus_allowed_list:' "$W/st" | cut -f2)
+[ "$got" = "$allowed" ] || fail "--cpu any changed affinity: '$allowed' -> '$got'"
+grep -q 'cpu=any' "$W/err" || fail "--cpu any not named in the summary: $(cat "$W/err")"
+pass "--cpu any leaves Cpus_allowed_list at $allowed"
+
 # ── 3. The summary line is always printed ─────────────────────────────────
+"$RT" --cpu "$cpu" -- cat /proc/self/status >/dev/null 2>"$W/err"
 grep -q '^rt-exec: .* -> cat' "$W/err" || fail "no summary line on stderr: $(cat "$W/err")"
 pass "one summary line names the target: $(grep '^rt-exec: .* -> cat' "$W/err")"
 
@@ -80,7 +88,7 @@ else
 fi
 
 # ── 7. Usage errors are errors ────────────────────────────────────────────
-for bad in "--cpu x true" "--prio 0 true" "--prio 100 true" ""; do
+for bad in "--cpu x true" "--cpu anything true" "--prio 0 true" "--prio 100 true" ""; do
     # shellcheck disable=SC2086
     "$RT" $bad >/dev/null 2>&1; rc=$?
     [ "$rc" = 2 ] || fail "rt-exec $bad exited $rc, not 2"

@@ -58,7 +58,7 @@ let
   ctl = config.archibald.dsp.control;
 in
 {
-  imports = [ ./audio.nix ./demod-rt.nix ./dsp-control-options.nix ];
+  imports = [ ./audio.nix ./demod-rt.nix ./dsp-control-bridge.nix ];
 
   # ── musnix: PREEMPT_RT kernel + RT audio tooling ────────────────────────────
   musnix = {
@@ -220,70 +220,13 @@ in
     };
   };
 
-  # ── DSP Control Bridge — expose orchestrator control socket over TCP ──────
-  # The DeMoD orchestrator already has a JSON-lines Unix domain socket at
-  # /run/demod/control.sock. This bridge forwards TCP:7777 → that socket
-  # so remote clients (Oligarchy dsp-ctl, USB networking, HydraMesh) can
-  # control the DSP coprocessor.
-  #
-  # No Python — just socat, which is ~zero overhead.
-  #
-  # Protocol: JSON-lines (one JSON object per line, response per line)
-  # Commands: ping, get_health, get_state, load_fx, unload_fx,
-  #           set_param, fx_bypass, set_bpm, set_gain, note_on, note_off
-  #
-  # Usage from host (through a hostfwd to this guest's control port):
-  #   dsp-ctl --transport tcp --host 127.0.0.1 --port <forwarded port> status
-  #
-  # It used to run as root, listen on every address with the firewall off, and
-  # accept anyone. Now: the engine's own user, no capabilities, a syscall and
-  # address-family allowlist, and socat's `range=` refusing any peer outside
-  # allowFrom before a byte is relayed.
-  systemd.services.dsp-control-bridge = {
-    description = "DSP Control Bridge — TCP → orchestrator Unix socket";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" "demod-rt.service" ];
-    wants = [ "demod-rt.service" ];
-
-    serviceConfig = {
-      Type = "simple";
-      Restart = "on-failure";
-      RestartSec = 3;
-
-      # fork = one process per connection, reuseaddr = quick reconnect,
-      # range = the only peers socat will talk to (checked per accept).
-      ExecStart = "${pkgs.socat}/bin/socat "
-        + "TCP4-LISTEN:${toString ctl.port},reuseaddr,fork,range=${ctl.allowFrom} "
-        + "UNIX-CONNECT:${config.services.demod-rt.controlSocket}";
-
-      User = "dsp";
-      Group = "audio";
-      NoNewPrivileges = true;
-      CapabilityBoundingSet = [ "" ];
-      AmbientCapabilities = [ "" ];
-      RestrictAddressFamilies = [ "AF_INET" "AF_UNIX" ];
-      IPAddressDeny = "any";
-      IPAddressAllow = [ ctl.allowFrom ];
-      SystemCallFilter = [ "@system-service" "~@privileged" "~@resources" ];
-      SystemCallArchitectures = "native";
-      ProtectSystem = "strict";
-      ReadWritePaths = [ "-${dirOf config.services.demod-rt.controlSocket}" ];
-      ProtectHome = true;
-      PrivateTmp = true;
-      PrivateDevices = true;
-      ProtectKernelTunables = true;
-      ProtectKernelModules = true;
-      ProtectKernelLogs = true;
-      ProtectControlGroups = true;
-      ProtectClock = true;
-      ProtectHostname = true;
-      RestrictNamespaces = true;
-      RestrictRealtime = true;
-      RestrictSUIDSGID = true;
-      LockPersonality = true;
-      MemoryDenyWriteExecute = true;
-      UMask = "0077";
-    };
+  # ── DSP Control Bridge — TCP → the engine's control socket ────────────────
+  # Defined in dsp-control-bridge.nix (shared with the companion profile).
+  # Here it runs as the engine's user and accepts QEMU user-net's host only.
+  archibald.dsp.control = {
+    enable = true;
+    user = "dsp";
+    group = "audio";
   };
 
   # ── Packages ───────────────────────────────────────────────────────────────

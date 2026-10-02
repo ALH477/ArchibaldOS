@@ -1,0 +1,39 @@
+{
+  "boot": {
+    "btrfsRoot": false,
+    "device": "/dev/sda",
+    "firmware": "bios",
+    "grubCryptodisk": true
+  },
+  "distro": "ArchibaldOS",
+  "hostname": "studio",
+  "keyboard": {
+    "consoleKeyMap": "us",
+    "layout": "us",
+    "variant": ""
+  },
+  "locale": {
+    "LANG": "de_DE.UTF-8",
+    "LC_TIME": "en_GB.UTF-8"
+  },
+  "luks": {
+    "keyFile": [
+      "luks-root",
+      "luks-swap"
+    ],
+    "swap": [
+      {
+        "name": "luks-swap",
+        "uuid": "22222222-0000-4000-8000-000000000002"
+      }
+    ]
+  },
+  "profile": "audio",
+  "schema": 1,
+  "timeZone": "Europe/Berlin",
+  "user": {
+    "autologin": true,
+    "fullName": "Asher",
+    "name": "asher"
+  }
+}

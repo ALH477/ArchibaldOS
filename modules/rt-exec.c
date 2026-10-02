@@ -4,8 +4,8 @@
  *
  * rt-exec — set up a real-time process image, then exec the target in it.
  *
- *   rt-exec [--cpu N] [--prio P] [--strict] [--] PROGRAM [ARGS...]
- *   env:    RT_EXEC_CPU=N  RT_EXEC_PRIO=P  RT_EXEC_STRICT=1
+ *   rt-exec [--cpu N|any] [--prio P] [--strict] [--] PROGRAM [ARGS...]
+ *   env:    RT_EXEC_CPU=N|any  RT_EXEC_PRIO=P  RT_EXEC_STRICT=1
  *
  * It establishes only what SURVIVES execve(2), because everything else is
  * undone before the target's first instruction:
@@ -15,6 +15,8 @@
  *      mlockall(2) and SCHED_FIFO requests can then succeed.
  *   2. SCHED_FIFO at priority P (default 99). The policy survives exec.
  *   3. CPU affinity to N (default 0, the DSP guest's only vCPU). Survives.
+ *      `any` leaves affinity alone: on a 2-core companion with no isolated
+ *      CPU, pinning JACK to one core only takes the other one away from it.
  *   4. PR_SET_THP_DISABLE. Survives exec by design (prctl(2)), and is read
  *      back with PR_GET_THP_DISABLE rather than assumed.
  *
@@ -52,6 +54,7 @@
 #include <unistd.h>
 
 #define DEFAULT_CPU  0
+#define CPU_ANY      (-1)
 #define DEFAULT_PRIO 99
 #define EXIT_SHORT   126  /* --strict and a guarantee could not be established */
 #define EXIT_USAGE   2
@@ -100,16 +103,21 @@ static int parse_int(const char *s, int lo, int hi, int *out) {
     return 0;
 }
 
+static int parse_cpu(const char *s, int *out) {
+    if (strcmp(s, "any") == 0) { *out = CPU_ANY; return 0; }
+    return parse_int(s, 0, CPU_SETSIZE - 1, out);
+}
+
 static void usage(void) {
     fprintf(stderr,
-            "usage: rt-exec [--cpu N] [--prio 1-99] [--strict] [--] PROGRAM [ARGS...]\n"
+            "usage: rt-exec [--cpu N|any] [--prio 1-99] [--strict] [--] PROGRAM [ARGS...]\n"
             "       env RT_EXEC_CPU, RT_EXEC_PRIO, RT_EXEC_STRICT=1\n");
 }
 
 int main(int argc, char *argv[]) {
     int cpu = DEFAULT_CPU, prio = DEFAULT_PRIO, strict = 0;
     const char *e;
-    if ((e = getenv("RT_EXEC_CPU")) && parse_int(e, 0, CPU_SETSIZE - 1, &cpu)) {
+    if ((e = getenv("RT_EXEC_CPU")) && parse_cpu(e, &cpu)) {
         fprintf(stderr, "rt-exec: bad RT_EXEC_CPU '%s'\n", e); return EXIT_USAGE;
     }
     if ((e = getenv("RT_EXEC_PRIO")) && parse_int(e, 1, 99, &prio)) {
@@ -121,13 +129,13 @@ int main(int argc, char *argv[]) {
     for (; i < argc; i++) {
         if (strcmp(argv[i], "--") == 0) { i++; break; }
         if (strcmp(argv[i], "--strict") == 0) { strict = 1; continue; }
-        if (strcmp(argv[i], "--cpu") == 0 || strcmp(argv[i], "--prio") == 0) {
-            int is_cpu = argv[i][2] == 'c';
-            if (i + 1 >= argc || parse_int(argv[i + 1], is_cpu ? 0 : 1,
-                                           is_cpu ? CPU_SETSIZE - 1 : 99,
-                                           is_cpu ? &cpu : &prio)) {
-                usage(); return EXIT_USAGE;
-            }
+        if (strcmp(argv[i], "--cpu") == 0) {
+            if (i + 1 >= argc || parse_cpu(argv[i + 1], &cpu)) { usage(); return EXIT_USAGE; }
+            i++;
+            continue;
+        }
+        if (strcmp(argv[i], "--prio") == 0) {
+            if (i + 1 >= argc || parse_int(argv[i + 1], 1, 99, &prio)) { usage(); return EXIT_USAGE; }
             i++;
             continue;
         }
@@ -160,12 +168,16 @@ int main(int argc, char *argv[]) {
     if (sched_setscheduler(0, SCHED_FIFO, &sp) != 0) fail("SCHED_FIFO", errno);
     else { char w[32]; snprintf(w, sizeof(w), "fifo:%d", prio); note(" %s", w); }
 
-    /* 3. CPU affinity. */
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(cpu, &set);
-    if (sched_setaffinity(0, sizeof(set), &set) != 0) fail("affinity", errno);
-    else { char w[32]; snprintf(w, sizeof(w), "cpu%d", cpu); note(" %s", w); }
+    /* 3. CPU affinity, unless `any`. */
+    if (cpu == CPU_ANY) {
+        note(" %s", "cpu=any");
+    } else {
+        cpu_set_t set;
+        CPU_ZERO(&set);
+        CPU_SET(cpu, &set);
+        if (sched_setaffinity(0, sizeof(set), &set) != 0) fail("affinity", errno);
+        else { char w[32]; snprintf(w, sizeof(w), "cpu%d", cpu); note(" %s", w); }
+    }
 
     /* 4. Transparent hugepages off for this process and its exec'd image. */
     if (prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0) != 0) fail("THP-disable", errno);

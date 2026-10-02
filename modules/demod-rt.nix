@@ -38,6 +38,16 @@ in
       description = "Package providing the demod-rt binary.";
     };
 
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "dsp";
+      description = ''
+        Account demod-rt runs as. It must be the account the JACK server runs
+        as: JACK keeps one server per user, so an engine under another user
+        cannot see it.
+      '';
+    };
+
     rtCore = lib.mkOption {
       type = lib.types.int;
       default = 0;
@@ -77,8 +87,8 @@ in
     #   /dev/shm/demod-audio-cmd — SPSC ring (orchestrator → RT)
     #   /dev/shm/demod-audio-evt — SPSC ring (RT → orchestrator)
     systemd.tmpfiles.rules = [
-      "d ${cfg.dataDir} 0755 dsp audio -"
-      "d /run/demod 0755 dsp audio -"
+      "d ${cfg.dataDir} 0755 ${cfg.user} audio -"
+      "d /run/demod 0755 ${cfg.user} audio -"
     ];
 
     # ── demod-rt systemd service ──────────────────────────────────────────────
@@ -101,7 +111,7 @@ in
 
       serviceConfig = {
         Type = "simple";
-        User = "dsp";
+        User = cfg.user;
         Group = "audio";
         Restart = "always";
         RestartSec = 3;
@@ -168,6 +178,6 @@ in
     # Not wheel: creating a socket under /run/demod (0755 dsp:audio, above)
     # needs no group at all, so "needs wheel for socket creation" granted
     # sudo for nothing. headless-dsp.nix decides console admin separately.
-    users.users.dsp.extraGroups = [ "audio" "jackaudio" "realtime" ];
+    users.users.${cfg.user}.extraGroups = [ "audio" "jackaudio" "realtime" ];
   };
 }
