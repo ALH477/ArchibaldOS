@@ -1,0 +1,31 @@
+{
+  "boot": {
+    "btrfsRoot": false,
+    "device": "/dev/nvme0n1",
+    "firmware": "efi",
+    "grubCryptodisk": false
+  },
+  "distro": "ArchibaldOS",
+  "hostname": "rack1",
+  "keyboard": {
+    "consoleKeyMap": null,
+    "layout": "de",
+    "variant": "nodeadkeys"
+  },
+  "locale": {
+    "LANG": "de_DE.UTF-8",
+    "LC_TIME": "en_GB.UTF-8"
+  },
+  "luks": {
+    "keyFile": [],
+    "swap": []
+  },
+  "profile": "rack",
+  "schema": 1,
+  "timeZone": "Europe/Berlin",
+  "user": {
+    "autologin": false,
+    "fullName": "Asher",
+    "name": "asher"
+  }
+}

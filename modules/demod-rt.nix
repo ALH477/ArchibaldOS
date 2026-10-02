@@ -9,23 +9,22 @@
 # connects to JACK, loads Faust FX chains, and processes audio with
 # SCHED_FIFO + mlockall at 64 samples / 96kHz = 0.67ms.
 #
-# The demod-rt binary is proprietary (PolyForm Shield 1.0.0). It is NOT
-# included in this public repo. To use this module:
+# demod-rt is part of DeMoD's audio stack, GPL-3.0-only or commercial (DeMoD
+# LICENSING.md), public at github.com/ALH477/DeMoD and a flake input here.
+# This header used to call it proprietary (PolyForm Shield); that is TERMINUS,
+# DeMoD's application layer, not the engine.
 #
-#   1. Build demod-rt from the DeMoD repo:
-#        cd ~/demod-work && nix build .#demod-rt
-#   2. Uncomment the `demod` input in flake.nix
-#   3. Uncomment the `dsp-vm-demod` nixosConfiguration in flake.nix
-#   4. Build: nix build .#dsp-vm-demod-qcow2
-#
-# Source: https://github.com/ALH477 (organization)
-# License: PolyForm Shield 1.0.0 (source-available, non-commercial)
-# Contact: alh477@proton.me
+# demod-rt ALONE CANNOT START: it maps the orchestrator's shared memory, which
+# only the orchestrator creates. Use archibald.engine (modules/demod-engine.nix),
+# which runs the orchestrator with demod-rt as its child, the way DeMoD does.
+# This unit stays for checks.dsp-vm-contract's wiring checks and warns when
+# enabled.
 # ============================================================================
 { config, lib, pkgs, ... }:
 
 let
   cfg = config.services.demod-rt;
+  rt-exec = pkgs.callPackage ./rt-exec.nix { };
 in
 {
   options.services.demod-rt = {
@@ -35,6 +34,16 @@ in
       type = lib.types.nullOr lib.types.package;
       default = null;
       description = "Package providing the demod-rt binary.";
+    };
+
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "dsp";
+      description = ''
+        Account demod-rt runs as. It must be the account the JACK server runs
+        as: JACK keeps one server per user, so an engine under another user
+        cannot see it.
+      '';
     };
 
     rtCore = lib.mkOption {
@@ -76,26 +85,33 @@ in
     #   /dev/shm/demod-audio-cmd — SPSC ring (orchestrator → RT)
     #   /dev/shm/demod-audio-evt — SPSC ring (RT → orchestrator)
     systemd.tmpfiles.rules = [
-      "d ${cfg.dataDir} 0755 dsp audio -"
-      "d /run/demod 0755 dsp audio -"
+      "d ${cfg.dataDir} 0755 ${cfg.user} audio -"
+      "d /run/demod 0755 ${cfg.user} audio -"
     ];
 
     # ── demod-rt systemd service ──────────────────────────────────────────────
-    # Runs demod-rt with maximum RT priority, wrapped by rt-exec for
-    # mlockall(MCL_FUTURE) + SCHED_FIFO + CPU pin + THP disable.
+    # Runs demod-rt under rt-exec (raised rlimits + SCHED_FIFO + CPU pin + THP
+    # disable). demod-rt does its own mlockall; rt-exec's limits let it.
     #
-    # demod-rt connects to JACK (running as jack2-netjack service) and
+    # demod-rt connects to the JACK server (jack2-alsa, headless-dsp.nix) and
     # processes audio through the Faust FX chain. Audio flows:
     #   host → NETJACK → JACK2 → demod-rt (Faust FX) → JACK2 → NETJACK → host
+    #
+    # It used to Require jack2-netjack.service, which no module defines (the
+    # units are jack2-alsa and jack2-netjack-master), so enabling this service
+    # produced a unit that could never start. checks.dsp-vm-contract now fails
+    # on a Requires= naming a service that is not defined and enabled.
+    warnings = [ "services.demod-rt runs demod-rt without the orchestrator, whose shared memory it needs; it will not start. Use archibald.engine (modules/demod-engine.nix)." ];
+
     systemd.services.demod-rt = {
       description = "DeMoD RT Audio Engine (demod-rt)";
       wantedBy = [ "multi-user.target" ];
-      after = [ "jack2-netjack.service" "pipewire.service" ];
-      requires = [ "jack2-netjack.service" ];
+      after = [ "jack2-alsa.service" ];
+      requires = [ "jack2-alsa.service" ];
 
       serviceConfig = {
         Type = "simple";
-        User = "dsp";
+        User = cfg.user;
         Group = "audio";
         Restart = "always";
         RestartSec = 3;
@@ -111,10 +127,13 @@ in
         LimitMEMLOCK = "infinity";
         LimitNICE = -20;
 
-        # Security: needs SYS_NICE for SCHED_FIFO, IPC_LOCK for mlockall
+        # Security: needs SYS_NICE for SCHED_FIFO, IPC_LOCK for mlockall.
+        # Ambient capabilities survive execve without setuid or file caps, so
+        # they do not need NoNewPrivileges off: nothing in this exec chain
+        # gains a privilege it was not handed here.
         CapabilityBoundingSet = [ "CAP_SYS_NICE" "CAP_IPC_LOCK" "CAP_SYS_RESOURCE" ];
         AmbientCapabilities = [ "CAP_SYS_NICE" "CAP_IPC_LOCK" "CAP_SYS_RESOURCE" ];
-        NoNewPrivileges = false;
+        NoNewPrivileges = true;
 
         ExecStart = let
           rtBin =
@@ -127,14 +146,16 @@ in
           mkdir -p "$(dirname ${cfg.controlSocket})"
           mkdir -p ${cfg.dataDir}
 
-          # rt-exec: mlockall(MCL_FUTURE) + SCHED_FIFO(99) + CPU pin + THP disable
-          # before exec'ing demod-rt. demod-rt then connects to JACK and
-          # enters the audio callback loop (64 samples @ 96kHz = 0.67ms).
-          exec ${pkgs.writeShellScriptBin "rt-exec-wrapper" ''
-            exec ${rtBin} \
+          # rt-exec: raised rlimits + SCHED_FIFO at rtPriority + CPU pin + THP
+          # disable, then exec demod-rt, which locks its own memory, connects
+          # to JACK and enters the audio callback loop (64 samples @ 96kHz =
+          # 0.67ms). This used to exec a script named "rt-exec-wrapper" that
+          # ran demod-rt directly: the comment said rt-exec, the code did not.
+          exec ${rt-exec}/bin/rt-exec \
+            --cpu ${toString cfg.rtCore} --prio ${toString cfg.rtPriority} -- \
+            ${rtBin} \
               --core ${toString cfg.rtCore} \
               ${faustArgs}
-          ''}/bin/rt-exec-wrapper
         '';
 
         ExecStop = "${pkgs.coreutils}/bin/kill -TERM $MAINPID";
@@ -153,7 +174,10 @@ in
       startLimitBurst = 5;
     };
 
-    # ── DSP user needs wheel for socket creation ──────────────────────────────
-    users.users.dsp.extraGroups = [ "wheel" "audio" "jackaudio" "realtime" ];
+    # ── DSP user groups ───────────────────────────────────────────────────────
+    # Not wheel: creating a socket under /run/demod (0755 dsp:audio, above)
+    # needs no group at all, so "needs wheel for socket creation" granted
+    # sudo for nothing. headless-dsp.nix decides console admin separately.
+    users.users.${cfg.user}.extraGroups = [ "audio" "jackaudio" "realtime" ];
   };
 }

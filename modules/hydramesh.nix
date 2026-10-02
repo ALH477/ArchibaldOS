@@ -1,12 +1,36 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2025 DeMoD LLC. All rights reserved.
 # HydraMesh NixOS Module - P2P networking as a containerized service
+#
+# THE SECURITY MODEL IS THE NETWORK. DCF carries no encryption, deliberately
+# (EAR/ITAR), so confidentiality and access are properties of the tunnel it
+# runs in (Punctim Documentation/DCF_SECURITY_EXPOSURE.md; Oligarchy's
+# demod-talk module makes the same argument and refuses a wildcard bind).
+# Two things here make that easy to get wrong, so they are explicit:
+#
+#   - Docker-published ports BYPASS networking.firewall: Docker DNATs them in
+#     PREROUTING and they never traverse the INPUT chain the NixOS firewall
+#     filters. The only control is the host address a port is published on —
+#     `bindAddress` / `grpcBindAddress` below. Set `bindAddress` to your
+#     WireGuard (or LAN) address; "0.0.0.0" publishes the plaintext mesh on
+#     every interface and is warned about.
+#   - The gRPC API is a control plane, not the mesh. It is published on
+#     loopback unless you say otherwise (it used to be every interface).
+#
+# `image` should be pinned by digest (`name@sha256:...`): a tag is mutable, so
+# `:latest` makes the running code a function of the day you pulled. Unpinned
+# references are warned about rather than refused, because no digest has been
+# verified for this repository's default yet.
 { config, lib, pkgs, ... }:
 
 with lib;
 
 let
   cfg = config.services.hydramesh;
+
+  isLoopback = a: hasPrefix "127." a || a == "::1" || a == "localhost";
+  isWildcard = a: a == "0.0.0.0" || a == "::" || a == "";
+  isPinned = img: builtins.match ".*@sha256:[0-9a-f]{64}" img != null;
 
   configFile = pkgs.writeText "hydramesh-config.json" (builtins.toJSON (
     {
@@ -62,7 +86,31 @@ in {
     host = mkOption {
       type = types.str;
       default = "0.0.0.0";
-      description = "Bind address";
+      description = ''
+        Bind address INSIDE the container (written to config.json). What the
+        host exposes is `bindAddress` / `grpcBindAddress`, not this.
+      '';
+    };
+
+    bindAddress = mkOption {
+      type = types.str;
+      default = "0.0.0.0";
+      example = "10.100.0.5";
+      description = ''
+        Host address the UDP mesh port is published on. Docker-published ports
+        bypass networking.firewall, so this is the access control: set it to
+        your WireGuard address. "0.0.0.0" (the default, for compatibility)
+        exposes the plaintext DCF wire on every interface and emits a warning.
+      '';
+    };
+
+    grpcBindAddress = mkOption {
+      type = types.str;
+      default = "127.0.0.1";
+      description = ''
+        Host address the gRPC API is published on. Loopback by default: it is
+        a control plane, and it used to be published on every interface.
+      '';
     };
 
     udpPort = mkOption {
@@ -161,8 +209,8 @@ in {
       ];
 
       ports = [
-        "${toString cfg.udpPort}:7777/udp"
-        "${toString cfg.grpcPort}:50051/tcp"
+        "${cfg.bindAddress}:${toString cfg.udpPort}:7777/udp"
+        "${cfg.grpcBindAddress}:${toString cfg.grpcPort}:50051/tcp"
       ];
 
       extraOptions = [
@@ -177,10 +225,30 @@ in {
       ];
     };
 
+    # Kept for a non-Docker path to these ports; Docker-published ports do
+    # not consult it (see the header). gRPC is opened only when it is not
+    # loopback-bound.
     networking.firewall = mkIf config.networking.firewall.enable {
-      allowedTCPPorts = [ cfg.grpcPort ];
+      allowedTCPPorts = optional (!isLoopback cfg.grpcBindAddress) cfg.grpcPort;
       allowedUDPPorts = [ cfg.udpPort ];
     };
+
+    warnings =
+      optional (isWildcard cfg.bindAddress) ''
+        services.hydramesh.bindAddress is "${cfg.bindAddress}": the plaintext DCF
+        mesh port ${toString cfg.udpPort}/udp is published on EVERY interface, and
+        Docker-published ports bypass networking.firewall. Set it to your
+        WireGuard address (see modules/hydramesh.nix and docs/security.md).
+      ''
+      ++ optional (!isLoopback cfg.grpcBindAddress) ''
+        services.hydramesh.grpcBindAddress is "${cfg.grpcBindAddress}": the
+        HydraMesh gRPC control API is reachable off-host.
+      ''
+      ++ optional (!isPinned cfg.image) ''
+        services.hydramesh.image "${cfg.image}" is not pinned by digest. A tag
+        is mutable; pin it as name@sha256:<64 hex> so the code that runs is the
+        code you reviewed.
+      '';
 
     environment.systemPackages = [
       (pkgs.writeShellScriptBin "hydramesh-logs" ''

@@ -46,13 +46,17 @@ with lib;
         arduino = mkOption {
           type = types.bool;
           default = true;
-          description = "Enable Arduino support";
+          description = ''
+            udev access for microcontroller boards and USB-serial adapters
+            (Arduino, CH340, FTDI, CP210x, STM32 DFU, Teensy, any ttyUSB/ttyACM),
+            granted to the `dialout` / `plugdev` groups — mode 0660, not 0666.
+          '';
         };
 
         canbus = mkOption {
           type = types.bool;
           default = true;
-          description = "Enable CAN bus support";
+          description = "Load the SocketCAN modules (can, can_raw, can_bcm, vcan, slcan).";
         };
 
         gpio = mkOption {
@@ -113,6 +117,31 @@ with lib;
 
       # Enable I2C
       hardware.i2c.enable = mkIf config.profiles.robotics.hardware.gpio true;
+
+      # Board access goes to a group, never to everyone. These rules used to
+      # live in flake.nix, duplicated per ISO, with MODE="0666" next to the
+      # GROUP= — so the group was decorative: any local account, including a
+      # service user, could write to an attached motor controller or flash a
+      # board. The live user is in dialout and plugdev; add others explicitly.
+      # (These options were declared before and wired to nothing.)
+      services.udev.extraRules = mkIf config.profiles.robotics.hardware.arduino ''
+        # Arduino, CH340, FTDI, Silicon Labs CP210x
+        SUBSYSTEM=="tty", ATTRS{idVendor}=="2341", MODE="0660", GROUP="dialout"
+        SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", MODE="0660", GROUP="dialout"
+        SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0660", GROUP="dialout"
+        SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", MODE="0660", GROUP="dialout"
+
+        # STM32 (DFU), Teensy
+        SUBSYSTEM=="usb", ATTRS{idVendor}=="0483", MODE="0660", GROUP="plugdev"
+        SUBSYSTEM=="usb", ATTRS{idVendor}=="16c0", MODE="0660", GROUP="plugdev"
+
+        # Generic USB serial
+        KERNEL=="ttyUSB*", MODE="0660", GROUP="dialout"
+        KERNEL=="ttyACM*", MODE="0660", GROUP="dialout"
+      '';
+
+      boot.kernelModules = mkIf config.profiles.robotics.hardware.canbus
+        [ "can" "can_raw" "can_bcm" "vcan" "slcan" ];
     })
 
     # Networking profile configuration

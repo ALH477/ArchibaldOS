@@ -102,6 +102,9 @@ nix build github:ALH477/ArchibaldOS#hydramesh-iso
 nix build github:ALH477/ArchibaldOS#iso-musnix
 nix build github:ALH477/ArchibaldOS#robotics-iso-musnix
 
+# The installer, without Calamares (also on every ISO)
+nix run github:ALH477/ArchibaldOS#archibaldos-install -- --help
+
 # RISC-V SD image for StarFive JH7110 boards (VisionFive 2 / Framework 13 RV)
 # Build natively on the board (preferred):
 nix build github:ALH477/ArchibaldOS#packages.riscv64-linux.archibaldOS-riscv-sdimage
@@ -122,11 +125,15 @@ board or cross-build from x86_64 — full guide in **[docs/riscv.md](docs/riscv.
 | **CachyOS RT** (default) | BORE | Best latency + responsiveness |
 | **musnix PREEMPT_RT** (fallback) | CFS | Mainline RT, max compatibility |
 
-Both kernels use the same RT parameters:
+The desktop profiles use the same RT parameters with either kernel:
 - `threadirqs` - Threaded IRQ handlers
 - `isolcpus=1-3` - Isolated CPU cores
 - `nohz_full=1-3` - Full tickless
 - `intel_idle.max_cstate=1` - Disable deep C-states
+
+The companion profile does not. It uses `threadirqs preempt=full`, with no
+isolated cores and no C-state cap, because both cost more than they buy on a
+2-core, passively cooled machine (see [docs/companion.md](docs/companion.md)).
 
 ## Profiles
 
@@ -135,6 +142,45 @@ Both kernels use the same RT parameters:
 | **Audio** | `iso` | RT audio production with DAWs, synths, DSP tools |
 | **Robotics** | `robotics-iso` | RT control systems, simulation, hardware I/O |
 | **HydraMesh** | `hydramesh-iso` | Headless P2P networking node |
+| **Companion** | installed from any ISO | Headless music computer for older 4 GB hardware, commanded by Oligarchy |
+| **Companion (Surface)** | installed from any ISO | The companion on the linux-surface kernel |
+| **Rack unit / mixer** | installed from any ISO | The companion with the DeMoD engine on board |
+| **Companion SD images** | `companion-pi4`, `companion-pi5`, `companion-riscv` | Raspberry Pi 4/5 and StarFive JH7110 as companions |
+
+## Installing
+
+The ISOs install ArchibaldOS itself. Earlier ISOs used the stock NixOS
+Calamares step, which wrote a generic `configuration.nix`, so what landed on
+the disk was plain NixOS. The installer now offers a profile page (every
+profile above, plus plain NixOS), copies this flake to `/etc/nixos` on the
+target, and installs `/etc/nixos#installed`. On the installed machine:
+
+```bash
+sudo nixos-rebuild switch --flake /etc/nixos#installed
+```
+
+Your own settings go in `/etc/nixos/hosts/installed/local.nix`. Details,
+including the CLI installer for the minimal ISO, are in
+[docs/installer.md](docs/installer.md).
+
+## Companion
+
+A headless music computer for older hardware (4 GB, 2 cores; first target an
+older Surface Pro), with JACK, zram and earlyoom and no desktop. An Oligarchy
+host commands it over WireGuard: `dsp-ctl` drives JACK and the DSP stack, and
+`oligarchy-companion deploy` builds on Oligarchy and switches the companion.
+Install steps, enrolment and what is still untested are in
+[docs/companion.md](docs/companion.md).
+
+## Laptops, embedded boards, rack units
+
+The same role runs on an x86 laptop, a Raspberry Pi 4/5, a JH7110 board or a
+rack PC. With a touchscreen attached, the front panel is **DeMoD Mixer** in
+kiosk mode; with none, the box is headless. Its DSP runs on the box (a rack
+unit) or on the Oligarchy DSP VM. Audio reaches the VM over NetJack2 inside
+WireGuard (wired boxes), and the mixer drives the VM's engine over DCF.
+[docs/form-factors.md](docs/form-factors.md) has the matrix, the link, and
+what is measured.
 
 ## Audio Profile
 
@@ -158,7 +204,8 @@ Same RT kernel optimized for control systems:
 
 ### Hardware Support
 
-Preconfigured udev rules for:
+Preconfigured udev rules (`profiles.robotics.hardware.arduino`, granted to the
+`dialout` / `plugdev` groups at mode 0660 — add users to those groups) for:
 - Arduino (all variants)
 - FTDI USB-serial
 - STM32 (DFU mode)
@@ -173,9 +220,15 @@ Sub-10ms latency networking:
 services.hydramesh = {
   enable = true;
   mode = "p2p";
-  peers = [ "192.168.1.100:7777" ];
+  peers = [ "10.100.0.2:7777" ];
+  bindAddress = "10.100.0.5";   # your WireGuard address: the DCF wire is plaintext
 };
 ```
+
+Docker-published ports bypass the NixOS firewall, so `bindAddress` is the
+access control; the gRPC API is published on loopback only
+(`grpcBindAddress`). Leaving `bindAddress` at `0.0.0.0`, or `image` unpinned by
+digest, builds with a warning. See [docs/security.md](docs/security.md).
 
 ## Community vs Pro
 
@@ -195,6 +248,28 @@ services.hydramesh = {
 | **Enterprise configs** | ❌ | ✅ |
 
 Pro: https://github.com/ALH477/archibaldos-pro
+
+## Security
+
+[docs/security.md](docs/security.md) states what each image exposes, what was
+fixed, and what is still open. Changes you will notice:
+
+- **DSP guest:** ssh takes keys only (add one with
+  `users.users.dsp.openssh.authorizedKeys.keys`); the control bridge runs as
+  `dsp`, not root, and accepts only `archibald.dsp.control.allowFrom` (default
+  QEMU user-net's host, `10.0.2.2/32`); the firewall is on; the image boots
+  under UEFI (OVMF) as well as BIOS.
+- **HydraMesh:** gRPC on loopback by default; `bindAddress` for the mesh port.
+- **Robotics:** board access is `0660` to `dialout`/`plugdev`, not `0666`.
+
+- **Companion:** password SSH only until Oligarchy enrols it, then keys only;
+  sudo is limited to the six `systemctl` commands `dsp-ctl` sends; the control
+  bridge listens on the WireGuard interface for the commander's address only.
+
+`nix flake check` runs the gates (`checks.rt-exec`, `checks.dsp-vm-contract`,
+`checks.robotics-contract`, `checks.installed-contract`,
+`checks.installer-unit`, `checks.netjack2`, `checks.roles-contract`); `nix build .#dsp-vm-boot-proxy` boots the DSP
+image layout under SeaBIOS and OVMF. See [tests/README.md](tests/README.md).
 
 ## Development
 

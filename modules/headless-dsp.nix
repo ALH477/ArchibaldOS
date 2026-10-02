@@ -11,10 +11,13 @@
 #      by the VM — direct ALSA access, zero-copy, zero-latency. No hypervisor
 #      translation in the audio path.
 #
-#   2. NETJACK (secondary, for routing processed audio back to host):
-#      JACK2 runs netone driver on port 4713. The host connects via
-#      jack_netsource to receive the DSP-processed audio and route it
-#      through PipeWire to speakers/other apps.
+#   2. NetJack2 (secondary, for audio to and from other machines): this
+#      guest's JACK runs jack2's netmanager on UDP 19000 (modules/netjack.nix,
+#      role "manager"). The host, or any box, joins with netadapter and
+#      appears here as a client named after its host. checks.netjack2 runs
+#      that exchange between two real JACK servers. The earlier units ran
+#      jack_netsource, the netone MASTER, here and on the host (two masters,
+#      no slave), with flags it does not have; that chain could not form.
 #
 # Audio flow:
 #   USB audio interface → VFIO controller → ALSA → JACK2 → demod-rt (Faust FX)
@@ -31,18 +34,34 @@
 #   - kernel.timer_migration=0 — keep timers local
 #   - dev.rtc.max-user-freq=8192 — max timer precision
 #
-# JACK2 wrapped with rt-exec: mlockall(MCL_FUTURE) + SCHED_FIFO(99) + CPU
-# pin + THP disable + max rlimits BEFORE jackd starts.
+# JACK2 wrapped with rt-exec: raised rlimits + SCHED_FIFO(99) + CPU pin +
+# THP disable BEFORE jackd starts. jackd -R locks its own memory; a lock taken
+# by the wrapper would not survive execve (see rt-exec.c).
 #
 # 64 samples @ 96kHz = 0.67ms round-trip latency target.
+#
+# ── Control plane ────────────────────────────────────────────────────────────
+# The DSP control socket accepts load_fx/synth.load, which make the engine
+# dlopen a path, so who can reach it is decided here rather than assumed:
+#   - the TCP bridge runs as the engine's own unprivileged user, sandboxed, and
+#     socat itself refuses any peer outside `archibald.dsp.control.allowFrom`
+#     (in-process, so it holds even where cgroup IP filtering is unavailable;
+#     IPAddressAllow repeats it as defence in depth);
+#   - the firewall is ON, opening only NETJACK, the control port and ssh;
+#   - sshd takes keys only (the image ships a well-known console password).
+# The default allowFrom is QEMU user-mode networking's host address, which is
+# where a host-side `hostfwd=tcp:127.0.0.1:P-:7777` (Oligarchy's dsp-vm module)
+# arrives from. Over a tap/bridge, set it to the host's address.
+# See docs/security.md.
 # ============================================================================
 { config, lib, pkgs, ... }:
 
 let
   rt-exec = pkgs.callPackage ./rt-exec.nix { };
+  ctl = config.archibald.dsp.control;
 in
 {
-  imports = [ ./audio.nix ./demod-rt.nix ];
+  imports = [ ./audio.nix ./demod-rt.nix ./dsp-control-bridge.nix ./netjack.nix ];
 
   # ── musnix: PREEMPT_RT kernel + RT audio tooling ────────────────────────────
   musnix = {
@@ -59,7 +78,8 @@ in
   services.udisks2.enable = lib.mkForce false;
   services.blueman.enable = lib.mkForce false;
   services.avahi.enable = lib.mkForce false;
-  networking.firewall.enable = false;
+  # On. The port lists below used to be dead config under `enable = false`.
+  networking.firewall.enable = lib.mkForce true;
 
   # ── PipeWire: ALSA routing only. No JACK compat (standalone JACK2 used). ───
   services.pipewire = {
@@ -82,21 +102,18 @@ in
     };
   };
 
-  # ── JACK2 with NETJACK netone driver (routes processed audio to host) ──────
+  # ── JACK2 on the passed-through interface ─────────────────────────────────
   # JACK2 uses the ALSA device from the VFIO-passed USB controller as its
-  # audio backend, AND runs the netone driver to expose NETJACK on port 4713
-  # so the host can pull the processed audio.
-  #
-  # The -d netone driver creates a NETJACK master. But we also need the
-  # actual ALSA device. JACK2 can only use one backend driver at a time.
-  # Solution: run JACK2 with the ALSA backend (direct hardware access via
-  # VFIO), then run a SEPARATE jack_netsource instance that bridges the
-  # local JACK to the host over the network.
+  # audio backend; NetJack2 rides on it as an internal client (below), so
+  # one server serves both the hardware and the network.
   systemd.services.jack2-alsa = {
     description = "JACK2 ALSA Backend — Direct VFIO USB Audio";
     wantedBy = [ "multi-user.target" ];
-    after = [ "pipewire.service" "sound.target" ];
-    requires = [ "pipewire.service" ];
+    # NOT Requires=pipewire.service. PipeWire is not systemWide here, so NixOS
+    # masks the system pipewire.service (enable = false -> /dev/null), and a
+    # Requires= on a masked unit fails the start: this unit, and everything
+    # requiring it, could not come up. jackd opens hw:0 itself.
+    after = [ "sound.target" ];
 
     serviceConfig = {
       Type = "simple";
@@ -121,7 +138,7 @@ in
       # Input latency: ~0.46ms (0.33ms period + 0.125ms USB micro-frame).
       # If xruns, bump to -p 48 or -p 64.
       ExecStart = pkgs.writeShellScript "jack2-alsa-start" ''
-        exec ${rt-exec}/bin/rt-exec \
+        exec ${rt-exec}/bin/rt-exec --cpu 0 --prio 99 -- \
           ${pkgs.jack2}/bin/jackd \
           -R \
           -d alsa \
@@ -137,43 +154,16 @@ in
     };
   };
 
-  # ── NETJACK bridge — exposes local JACK to host over network ───────────────
-  # jack_netsource runs inside the VM and creates a NETJACK master on port
-  # 4713. The host connects as a slave to pull processed audio.
-  systemd.services.jack2-netjack-master = {
-    description = "JACK2 NETJACK Master — Expose DSP Audio to Host";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "jack2-alsa.service" ];
-    requires = [ "jack2-alsa.service" ];
+  # ── NetJack2 manager: boxes and the host join this guest's JACK ──────────
+  archibald.jack = { user = "dsp"; unit = "jack2-alsa.service"; };
+  archibald.netjack.role = "manager";
 
-    serviceConfig = {
-      Type = "simple";
-      User = "dsp";
-      Group = "audio";
-      Restart = "on-failure";
-      RestartSec = 5;
-
-      ExecStart = pkgs.writeShellScript "jack2-netjack-master-start" ''
-        # Wait for JACK ALSA to be ready
-        sleep 2
-        # Create NETJACK master on port 4713, bridging local JACK to network
-        # 32 frames @ 96kHz = 0.33ms — matches JACK ALSA backend
-        exec ${pkgs.jack2}/bin/jack_netsource \
-          -n archibaldos-dsp \
-          -p 4713 \
-          -C 2 \
-          -P 2 \
-          -l 32 \
-          -r 96000
-      '';
-
-      ExecStop = "${pkgs.coreutils}/bin/kill -TERM $MAINPID";
-    };
-  };
-
-  # Open NETJACK port
-  networking.firewall.allowedTCPPorts = [ 4713 7777 ];
-  networking.firewall.allowedUDPPorts = [ 4713 ];
+  # NetJack2 and the control bridge. ssh opens its own port (openFirewall).
+  # The guest sits behind its host, so NetJack2's manager port and the
+  # ephemeral data ports it negotiates are opened on every interface here.
+  networking.firewall.allowedTCPPorts = [ ctl.port ];
+  networking.firewall.allowedUDPPorts = [ config.archibald.netjack.port ];
+  networking.firewall.allowedUDPPortRanges = [{ from = 1024; to = 65535; }];
 
   # ── Users ──────────────────────────────────────────────────────────────────
   users.users.dsp = {
@@ -186,37 +176,27 @@ in
   };
 
   services.getty.autologinUser = lib.mkForce "dsp";
-  services.openssh.enable = true;
 
-  # ── DSP Control Bridge — expose orchestrator control socket over TCP ──────
-  # The DeMoD orchestrator already has a JSON-lines Unix domain socket at
-  # /run/demod/control.sock. This bridge forwards TCP:7777 → that socket
-  # so remote clients (Oligarchy dsp-ctl, USB networking, HydraMesh) can
-  # control the DSP coprocessor.
-  #
-  # No Python — just socat, which is ~zero overhead.
-  #
-  # Protocol: JSON-lines (one JSON object per line, response per line)
-  # Commands: ping, get_health, get_state, load_fx, unload_fx,
-  #           set_param, fx_bypass, set_bpm, set_gain, note_on, note_off
-  #
-  # Usage from host:
-  #   dsp-ctl --transport tcp --host <this-ip> --port 7777 status
-  systemd.services.dsp-control-bridge = {
-    description = "DSP Control Bridge — TCP → orchestrator Unix socket";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" "demod-rt.service" ];
-    wants = [ "demod-rt.service" ];
-
-    serviceConfig = {
-      Type = "simple";
-      Restart = "on-failure";
-      RestartSec = 3;
-
-      # socat TCP-LISTEN:7777,fork → UNIX-CONNECT:/run/demod/control.sock
-      # fork = one process per connection, reuseaddr = quick reconnect
-      ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:7777,reuseaddr,fork UNIX-CONNECT:/run/demod/control.sock";
+  # Keys only. `dsp` ships with a published password and is in wheel, so a
+  # password login over ssh was root for anyone who could reach port 22. The
+  # serial console (autologin) is the way in without a key; add one with
+  # users.users.dsp.openssh.authorizedKeys.keys in your own module.
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
+      PermitRootLogin = "no";
     };
+  };
+
+  # ── DSP Control Bridge — TCP → the engine's control socket ────────────────
+  # Defined in dsp-control-bridge.nix (shared with the companion profile).
+  # Here it runs as the engine's user and accepts QEMU user-net's host only.
+  archibald.dsp.control = {
+    enable = true;
+    user = "dsp";
+    group = "audio";
   };
 
   # ── Packages ───────────────────────────────────────────────────────────────
