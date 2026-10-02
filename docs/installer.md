@@ -81,10 +81,17 @@ UEFI works, because the hardware scan records it.
 `installer/calamares/extensions.nix` builds a replacement
 `calamares-nixos-extensions`. It copies upstream, adds the job and the profile
 page, and regenerates `settings.conf`. Before regenerating, it checks that
-upstream's module instances and page sequence are exactly the ones this was
-written against. If nixpkgs changes them, the ISO build fails with
+upstream's module instances and page sequence match one of the two shapes
+it knows. Both ship as version 0.3.23: nixos-25.11's, and this tree's
+nixos-unstable one, which adds a progress weight for the `nixos` job. If
+nixpkgs changes either, the ISO build fails with
 `calamares-nixos-extensions changed its ...` instead of shipping an installer
 that skips a page. `checks.installer-unit` proves that this guard fires.
+
+The job borrows `NixProgress` and `fix_btrfs_subvolumes` from upstream only
+where they exist; the 25.11 job has neither. These files are shared with
+Oligarchy, which runs 25.11 and vendors them byte-identically (Oligarchy
+`installer/README.md`). A change here goes there too.
 
 ## Gates
 

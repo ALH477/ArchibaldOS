@@ -211,19 +211,25 @@ class Run(unittest.TestCase):
         with open(os.path.join(hosts, "hardware-configuration.nix")) as f:
             hw = f.read()
         # Parity with upstream, not an outcome: the scan went through upstream's
-        # own fix_btrfs_subvolumes. (Its regex, `[^;]*` from fileSystems."/home"
-        # to "subvol=, cannot cross the `device = "...";` nixos-generate-config
-        # writes first, so on real scans it changes nothing. That is upstream's
-        # behaviour for plain NixOS too, and this job keeps it.)
+        # own fix_btrfs_subvolumes where this upstream has one (nixos-25.11's
+        # has none, and then the scan is written as it came). (Its regex,
+        # `[^;]*` from fileSystems."/home" to "subvol=, cannot cross the
+        # `device = "...";` nixos-generate-config writes first, so on real
+        # scans it changes nothing. That is upstream's behaviour for plain
+        # NixOS too, and this job keeps it.)
         scan = subprocess.check_output(["nixos-generate-config", "--root", self.root,
                                         "--show-hardware-config"]).decode()
-        self.assertEqual(hw, job.upstream().fix_btrfs_subvolumes(scan, g["partitions"]))
+        fix = getattr(job.upstream(), "fix_btrfs_subvolumes", None)
+        self.assertEqual(hw, fix(scan, g["partitions"]) if fix else scan)
         self.assertIn('fileSystems."/home"', hw)
         calls = self.calls_text()
         self.assertIn("nixos-generate-config --root {} --show-hardware-config".format(self.root), calls)
         self.assertIn("--flake {}#installed".format(etc), calls)
         self.assertIn("--root {}".format(self.root), calls)
         self.assertIn("--no-root-passwd", calls)
+        # internal-json only where upstream can parse it into progress.
+        self.assertEqual("--log-format internal-json" in calls,
+                         hasattr(job.upstream(), "NixProgress"))
         self.assertFalse(os.path.exists(os.path.join(etc, "configuration.nix")),
                          "a generic configuration.nix must not be left behind")
 

@@ -50,6 +50,17 @@ INSTALL_PROGRESS_END = 1.0
 _upstream_module = None
 
 
+class _NoProgress:
+    """Stands in for upstream's NixProgress when upstream has none."""
+    fraction = 0.0
+
+    def __init__(self):
+        self.log_messages = []
+
+    def handle(self, line):
+        return False
+
+
 def _conf():
     return libcalamares.job.configuration or {}
 
@@ -247,7 +258,10 @@ def run():
         out = e.output.decode("utf8") if e.output else str(e)
         libcalamares.utils.error(out)
         return (_("nixos-generate-config failed"), out)
-    hw = upstream().fix_btrfs_subvolumes(hw, partitions)
+    # Upstream's own fix, where this upstream has one (not nixos-25.11's).
+    fix = getattr(upstream(), "fix_btrfs_subvolumes", None)
+    if fix is not None:
+        hw = fix(hw, partitions)
     _write(os.path.join(host_dir, "hardware-configuration.nix"), hw)
     _write(os.path.join(host_dir, "install.json"), json.dumps(data, indent=2, sort_keys=True) + "\n")
 
@@ -258,17 +272,21 @@ def run():
     except subprocess.CalledProcessError as e:
         libcalamares.utils.warning("Failed to set permissions on {}: {}".format(root_mount_point, e.output))
 
+    # Progress from nix's internal-json log, where upstream has the parser
+    # (NixProgress; nixos-25.11's job has none, and then the bar holds still
+    # and the log is plain text).
+    progress_cls = getattr(upstream(), "NixProgress", None)
+    progress = progress_cls() if progress_cls is not None else _NoProgress()
     cmd = ["pkexec"] + upstream().generateProxyStrings() + [
         "nixos-install",
         "--no-root-passwd",
         "--root", root_mount_point,
         "--flake", "{}#{}".format(etc, conf.get("flakeAttr", "installed")),
-        "--log-format", "internal-json",
+    ] + (["--log-format", "internal-json"] if progress_cls is not None else []) + [
         # Same reason as upstream: the chroot store's default build dir is
         # under /tmp, which Nix refuses (world-writable parent).
         "--option", "build-dir", "/nix/var/nix/builds",
     ]
-    progress = upstream().NixProgress()
     output = ""
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

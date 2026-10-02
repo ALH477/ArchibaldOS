@@ -3,8 +3,18 @@
 #
 # `<distro>-install`: installer/cli.py with the same job module and the same
 # job configuration the graphical installer gets (installer/calamares/).
-{ lib, runCommand, makeWrapper, python3, calamares-nixos-extensions
-, distro, source, profiles, defaultProfile, flakeAttr ? "installed", hostDir ? "hosts/installed" }:
+{ lib
+, runCommand
+, makeWrapper
+, python3
+, calamares-nixos-extensions
+, distro
+, source
+, profiles
+, defaultProfile
+, flakeAttr ? "installed"
+, hostDir ? "hosts/installed"
+}:
 
 let
   name = "${lib.toLower distro}-install";
