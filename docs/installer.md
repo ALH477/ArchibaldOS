@@ -50,6 +50,18 @@ sudo nixos-rebuild switch --flake /etc/nixos#installed
 | `commander.nix` | Oligarchy's `oligarchy-companion enroll` (companions only) | no |
 | `local.nix` | nothing | yes: your own settings, imported when it exists |
 
+No profile allows unfree packages wholesale, because the same profiles build
+the ISOs and those are redistributed. REAPER is unfree and not
+redistributable, so no image ships it. To add it, or another unfree package,
+on your own machine, name it in `local.nix`:
+
+```nix
+{ pkgs, ... }: {
+  nixpkgs.config.allowUnfreePackages = [ "reaper" ];
+  environment.systemPackages = [ pkgs.reaper ];
+}
+```
+
 `/etc/nixos` is a plain copy, not a git checkout. To follow ArchibaldOS
 upstream, either run `nix flake update` there, or replace everything except
 `hosts/installed/` with a newer tree. If you want history, `git init` it,

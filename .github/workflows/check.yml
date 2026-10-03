@@ -6,6 +6,9 @@
 # nixosConfiguration, the Pi and RISC-V images included, is evaluated but not
 # built. The KVM gate (`nix build .#dsp-vm-boot-proxy`) stays on demand.
 #
+# A second job runs `reuse lint`: every file's copyright and licence must be
+# declared, in its header or in REUSE.toml, with the text in LICENSES/.
+#
 # Hosted runner only, and no secrets: a fork's pull request runs this too, so
 # nothing here may reach a self-hosted machine or a credential.
 name: check
@@ -50,3 +53,19 @@ jobs:
 
       - name: nix flake check
         run: nix flake check --no-update-lock-file --print-build-logs
+
+  reuse:
+    name: reuse lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # A venv, because the runner's system Python is externally managed
+      # (PEP 668) and refuses a plain `pip install`. reuse is pinned to the
+      # version the tree was checked with.
+      - name: reuse lint
+        run: |
+          python3 -m venv "$RUNNER_TEMP/reuse"
+          "$RUNNER_TEMP/reuse/bin/python" -m pip install --quiet reuse==6.2.0
+          "$RUNNER_TEMP/reuse/bin/reuse" lint

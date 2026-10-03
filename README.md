@@ -84,7 +84,10 @@ If you want an OS that **gets out of your way** and lets you build **serious rea
 
 ## License
 
-BSD-3-Clause. See [LICENSE](LICENSE).
+BSD-3-Clause, copyright DeMoD LLC. See [LICENSE](LICENSE). Per-file
+licensing, including third-party portions, is in [REUSE.toml](REUSE.toml) and
+[LICENSES/](LICENSES/), and CI checks it with `reuse lint`. Contributions:
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Quick Start
 
@@ -186,7 +189,9 @@ what is measured.
 
 - **Kernel**: CachyOS RT with BORE scheduler
 - **Latency**: 32 samples @ 96kHz (~0.33ms)
-- **DAWs**: Ardour, Audacity, Zrythm, Reaper
+- **DAWs**: Ardour, Audacity, Zrythm (REAPER is unfree and not
+  redistributable, so no image ships it; add it on your own machine, see
+  [docs/installer.md](docs/installer.md))
 - **Synths**: Surge, Helm, Carla
 - **DSP**: Csound, Faust, SuperCollider, Pure Data
 - **Desktop**: Plasma 6 with Wayland
@@ -197,7 +202,8 @@ Same RT kernel optimized for control systems:
 
 - **Simulation**: Gazebo, Blender
 - **CAD/EDA**: FreeCAD, OpenSCAD, KiCad
-- **Development**: CMake, GCC, Clang, Python, VS Code
+- **Development**: CMake, GCC, Clang, Python (VS Code is unfree and not
+  redistributable, so no image ships it; add it on your own machine)
 - **Hardware**: Arduino IDE, serial tools, CAN bus
 - **Vision**: OpenCV
 - **Control**: Octave, NumPy, SciPy, control library

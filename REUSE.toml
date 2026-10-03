@@ -1,0 +1,77 @@
+# Licensing for files that do not carry a complete SPDX header of their own
+# (REUSE Specification 3.3). `reuse lint` checks the whole tree against this
+# file and LICENSES/; .github/workflows/check.yml runs it on every push to
+# main and every pull request.
+#
+# Precedence is "closest" unless a block says otherwise: a file's own header
+# wins, and a file whose header has only a copyright line or only a licence
+# tag takes the missing half from the block that matches it. When several
+# blocks match one file, the last one applies.
+version = 1
+
+# --- Project documentation, CI and metadata ---------------------------------
+# DeMoD LLC's own work under the project licence (LICENSE, BSD-3-Clause).
+# README.md has a copyright line but no licence tag; docs/ and
+# tests/README.md have a licence tag but no copyright line; the rest
+# (.gitignore, the CI workflow, CONTRIBUTING.md) have neither.
+[[annotations]]
+path = "README.md"
+SPDX-FileCopyrightText = "2025-2026 DeMoD LLC"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = [
+  "CONTRIBUTING.md",
+  "docs/**",
+  "tests/README.md",
+  ".github/**",
+  ".gitignore",
+]
+SPDX-FileCopyrightText = "2026 DeMoD LLC"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+# --- flake.lock ---------------------------------------------------------------
+# Written by `nix flake lock` for this flake, never edited by hand: it records
+# the revisions and hashes this project pins its inputs to. A comment line
+# would make it invalid JSON, hence the annotation here.
+[[annotations]]
+path = "flake.lock"
+SPDX-FileCopyrightText = "2026 DeMoD LLC"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+# --- Test fixtures ------------------------------------------------------------
+# Hand-written installer outputs (install.json, hardware-configuration.nix,
+# commander.nix) that checks.installed-contract and checks.roles-contract
+# evaluate as they are. JSON has no comments, and the .nix fixtures have a
+# licence tag but no copyright line; they are not edited to add one.
+[[annotations]]
+path = "tests/fixtures/**"
+SPDX-FileCopyrightText = "2026 DeMoD LLC"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+# --- installer/ -----------------------------------------------------------------
+# Vendored byte-identically into Oligarchy (github.com/ALH477/Oligarchy,
+# installer/README.md there): main.py, module.desc, extensions.nix,
+# test_distroinstall.py, cli.py, cli.nix and iso.nix must stay the same bytes
+# in both trees, so licensing that is missing from them is recorded here
+# instead of in the files. installed.nix and profiles.nix are this tree's own.
+# module.desc has a licence tag but no copyright line.
+[[annotations]]
+path = "installer/**"
+SPDX-FileCopyrightText = "2026 DeMoD LLC"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+# The distroinstall job keeps its own header (DeMoD LLC, BSD-3-Clause), and
+# this block adds to it (precedence "aggregate"). Three of its steps follow
+# the upstream `nixos` job of calamares-nixos-extensions closely: the BIOS +
+# GRUB-cryptodisk keyfile (`_luks_keyfile`: the same commands in the same
+# order), the `pkexec chmod 755` step (same command and warning text) and
+# the `nixos-install` progress loop in `run()`. At this flake's pinned
+# nixpkgs that job lives in the nixpkgs tree
+# (pkgs/by-name/ca/calamares-nixos-extensions/src/modules/nixos/main.py),
+# whose package meta gives its code as MIT, under nixpkgs' COPYING notice.
+[[annotations]]
+path = "installer/calamares/distroinstall/main.py"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2003-2026 Eelco Dolstra and the Nixpkgs/NixOS contributors"
+SPDX-License-Identifier = "MIT"
