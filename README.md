@@ -186,7 +186,9 @@ what is measured.
 
 - **Kernel**: CachyOS RT with BORE scheduler
 - **Latency**: 32 samples @ 96kHz (~0.33ms)
-- **DAWs**: Ardour, Audacity, Zrythm, Reaper
+- **DAWs**: Ardour, Audacity, Zrythm (REAPER is unfree and not
+  redistributable, so no image ships it; add it on your own machine, see
+  [docs/installer.md](docs/installer.md))
 - **Synths**: Surge, Helm, Carla
 - **DSP**: Csound, Faust, SuperCollider, Pure Data
 - **Desktop**: Plasma 6 with Wayland

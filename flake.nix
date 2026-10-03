@@ -53,10 +53,8 @@
   # NOTE: when demod input is enabled, add `demod` to the outputs args above.
   let
     system = "x86_64-linux";
-    pkgs = import nixpkgs {
-      inherit system;
-      config.allowUnfree = true;
-    };
+    # No allowUnfree here or in any image's nixpkgs.config (see baseConfig).
+    pkgs = import nixpkgs { inherit system; };
 
     # Shared flake URI for updates
     flakeUri = "github:ALH477/ArchibaldOS";
@@ -73,7 +71,6 @@
       ({ config, pkgs, lib, ... }: {
         system.stateVersion = "24.11";
         boot.supportedFilesystems.zfs = lib.mkForce false;
-        nixpkgs.config.allowUnfree = true;
 
         networking.hostName = "archibaldos-dsp";
         networking.useDHCP = true;
@@ -143,9 +140,10 @@
       # default otherwise).
       boot.supportedFilesystems.zfs = lib.mkForce false;
 
-      # Some bundled tools (e.g. reaper) are unfree. The module-system pkgs
-      # needs this even though the flake's top-level pkgs already sets it.
-      nixpkgs.config.allowUnfree = true;
+      # No allowUnfree: every image built from this is redistributed, and an
+      # unfree package with no redistribution right (REAPER) must fail
+      # evaluation here rather than land in an ISO. A user adds one on their
+      # own machine with nixpkgs.config.allowUnfreePackages in local.nix.
     };
 
 
@@ -181,7 +179,8 @@
           dialog mkpasswd
 
           # DAWs & Audio Tools
-          audacity ardour reaper
+          # REAPER is unfree and not redistributable: add it on your own machine.
+          audacity ardour
           fluidsynth guitarix
 
           # Synths & Effects
@@ -214,6 +213,9 @@
 
         # Select robotics profile
         profiles.robotics.enable = true;
+
+        # vscode is unfree: allowed by name, not by a blanket allowUnfree.
+        nixpkgs.config.allowUnfreePackages = [ "vscode" ];
 
         # musnix for RT tooling (not kernel)
         musnix = {
@@ -366,7 +368,8 @@
         environment.systemPackages = with pkgs; [
           usbutils libusb1 alsa-firmware alsa-tools
           dialog mkpasswd
-          audacity ardour reaper fluidsynth guitarix
+          # REAPER is unfree and not redistributable: add it on your own machine.
+          audacity ardour fluidsynth guitarix
           surge helm vmpk calf zrythm carla
           csound csound-qt faust faust2alsa faust2jack
           puredata supercollider qjackctl pavucontrol
@@ -386,6 +389,9 @@
         nixpkgs.config.permittedInsecurePackages = [ "qtwebengine-5.15.19" ];
 
         profiles.robotics.enable = true;
+
+        # vscode is unfree: allowed by name, not by a blanket allowUnfree.
+        nixpkgs.config.allowUnfreePackages = [ "vscode" ];
 
         environment.systemPackages = with pkgs; [
           usbutils libusb1 dialog mkpasswd
