@@ -270,6 +270,8 @@ fixed, and what is still open. Changes you will notice:
 `checks.robotics-contract`, `checks.installed-contract`,
 `checks.installer-unit`, `checks.netjack2`, `checks.roles-contract`); `nix build .#dsp-vm-boot-proxy` boots the DSP
 image layout under SeaBIOS and OVMF. See [tests/README.md](tests/README.md).
+`.github/workflows/check.yml` runs `nix flake check` on every pull request and
+every push to `main`; the KVM boot proxy stays on demand.
 
 ## Development
 

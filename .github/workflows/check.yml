@@ -1,0 +1,52 @@
+# check — `nix flake check` on every push to main and every pull request.
+#
+# The gates it runs need no KVM and no hardware: rt-exec, dsp-vm-contract,
+# robotics-contract, installed-contract, installer-unit, netjack2 (three real
+# JACK servers inside the build sandbox) and roles-contract. Every
+# nixosConfiguration, the Pi and RISC-V images included, is evaluated but not
+# built. The KVM gate (`nix build .#dsp-vm-boot-proxy`) stays on demand.
+#
+# Hosted runner only, and no secrets: a fork's pull request runs this too, so
+# nothing here may reach a self-hosted machine or a credential.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  flake-check:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned by commit, the same pin Oligarchy's eval lane uses: the one
+      # third-party action, so the one where a pin buys something.
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25
+
+      # The lock is the only thing between this repo and a moving input
+      # (nixpkgs follows nixos-unstable). If evaluation would rewrite it,
+      # CI was about to check something other than what is committed.
+      - name: flake.lock is honoured, not rewritten
+        run: |
+          nix flake metadata --no-update-lock-file >/dev/null
+          if ! git diff --quiet -- flake.lock; then
+            echo "::error file=flake.lock::flake.lock changed during evaluation."
+            git diff -- flake.lock
+            exit 1
+          fi
+
+      - name: nix flake check
+        run: nix flake check --no-update-lock-file --print-build-logs
