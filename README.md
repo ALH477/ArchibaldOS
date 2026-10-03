@@ -86,7 +86,8 @@ If you want an OS that **gets out of your way** and lets you build **serious rea
 
 BSD-3-Clause, copyright DeMoD LLC. See [LICENSE](LICENSE). Per-file
 licensing, including third-party portions, is in [REUSE.toml](REUSE.toml) and
-[LICENSES/](LICENSES/), and CI checks it with `reuse lint`.
+[LICENSES/](LICENSES/), and CI checks it with `reuse lint`. Contributions:
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Quick Start
 
