@@ -199,7 +199,8 @@ Same RT kernel optimized for control systems:
 
 - **Simulation**: Gazebo, Blender
 - **CAD/EDA**: FreeCAD, OpenSCAD, KiCad
-- **Development**: CMake, GCC, Clang, Python, VS Code
+- **Development**: CMake, GCC, Clang, Python (VS Code is unfree and not
+  redistributable, so no image ships it; add it on your own machine)
 - **Hardware**: Arduino IDE, serial tools, CAN bus
 - **Vision**: OpenCV
 - **Control**: Octave, NumPy, SciPy, control library

@@ -141,9 +141,9 @@
       boot.supportedFilesystems.zfs = lib.mkForce false;
 
       # No allowUnfree: every image built from this is redistributed, and an
-      # unfree package with no redistribution right (REAPER) must fail
-      # evaluation here rather than land in an ISO. A user adds one on their
-      # own machine with nixpkgs.config.allowUnfreePackages in local.nix.
+      # unfree package with no redistribution right (REAPER, VS Code) must
+      # fail evaluation here rather than land in an ISO. A user adds one on
+      # their own machine with nixpkgs.config.allowUnfreePackages in local.nix.
     };
 
 
@@ -214,9 +214,6 @@
         # Select robotics profile
         profiles.robotics.enable = true;
 
-        # vscode is unfree: allowed by name, not by a blanket allowUnfree.
-        nixpkgs.config.allowUnfreePackages = [ "vscode" ];
-
         # musnix for RT tooling (not kernel)
         musnix = {
           enable = true;
@@ -278,7 +275,7 @@
           python3Packages.pip
           
           # IDEs
-          vscode
+          # VS Code is unfree and not redistributable: add it on your own machine.
           arduino-ide
           
           # Networking for robot comms
@@ -390,9 +387,6 @@
 
         profiles.robotics.enable = true;
 
-        # vscode is unfree: allowed by name, not by a blanket allowUnfree.
-        nixpkgs.config.allowUnfreePackages = [ "vscode" ];
-
         environment.systemPackages = with pkgs; [
           usbutils libusb1 dialog mkpasswd
           octave
@@ -402,7 +396,8 @@
           minicom screen picocom can-utils
           opencv freecad openscad blender
           kicad cmake gnumake gcc gdb clang
-          python3 vscode arduino-ide
+          # VS Code is unfree and not redistributable: add it on your own machine.
+          python3 arduino-ide
           wireshark tcpdump nmap
           doxygen graphviz
         ];
